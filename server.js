@@ -1,138 +1,131 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const mongoose = require('mongoose');
-const cookieParser = require('cookie-parser');
-require('dotenv').config();
+const multer = require('multer');
+const crypto = require('crypto');
+const path = require('path');
+const config = require('./src/config');
+const { Engine, AppError } = require('./src/engine');
 
-const yemotRoutes = require('./routes/yemotRoutes');
-const authRoutes = require('./routes/authRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-const gamesRoutes = require('./routes/gamesRoutes');
-const paymentRoutes = require('./routes/paymentRoutes');
-
-const Player = require('./models/Player');
-const Game = require('./models/Game');
-const { activateGame, CONFIG, getStaleCallIds, forget, getTotalConnectionCount } = require('./game/gameState');
-
-const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/clicker-db';
+const Provider = config.MAIL_PROVIDER === 'fake' ? require('./src/mail/fake') : require('./src/mail/gmail');
+const provider = new Provider();
+const engine = new Engine(provider);
 
 const app = express();
-// חובה כדי ש-req.ip ישקף את כתובת ה-IP האמיתית של הפונה, לא את כתובת ה-proxy
-// הפנימי של Render - קריטי לאימות מקור ה-CallBack של נדרים פלוס (routes/paymentRoutes.js).
-// חשוב: 2 (לא 1!) - אומת בפועל מול ה-x-forwarded-for בלוגים: השרשרת מגיעה
-// כ-"<IP אמיתי של הצד השני>, <IP של קפיצת proxy נוספת של Render/Cloudflare>",
-// כלומר יש 2 קפיצות proxy לפני שמגיעים לשרת שלנו, לא 1. עם trust proxy=1,
-// req.ip היה מחזיר את קפיצת ה-proxy האמצעית (שמתחלפת בכל בקשה) במקום את
-// כתובת המקור האמיתית - זה גרם לדחיית callbacks אמיתיים מנדרים פלוס
-// (routes/paymentRoutes.js) כאילו הגיעו מ-IP לא מוכר. ראה גם ext.ini/יומן
-// שיחות מימות - אם אי פעם תלוי בזיהוי IP אמיתי במקום אחר, זה המקום לבדוק ראשון.
-app.set('trust proxy', 2);
+app.set('trust proxy', 1);
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 10 } });
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: 0 }));
 
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] }
-});
-app.set('io', io);
+// ---------- התחברות צוות ----------
+const SECRET = config.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+if (!config.SESSION_SECRET) console.warn('SESSION_SECRET לא הוגדר – המשתמשים יתנתקו בכל הפעלה מחדש');
+const sign = v => crypto.createHmac('sha256', SECRET).update(v).digest('base64url');
+const COOKIE = 'koh_s';
+const MAX_AGE = 30 * 24 * 3600 * 1000;
 
-// אין יותר hold על ה-response (short-polling) - כל בקשה נענית תוך שניות
-// בודדות, לכן אין צורך ב-keepAliveTimeout ארוך כמו בארכיטקטורה הקודמת.
-
-mongoose.connect(MONGO_URI)
-    .then(async () => {
-        console.log('✅ התחברות ל-MongoDB הצליחה');
-
-        try {
-            const result = await Player.updateMany({ active: true }, { $set: { active: false } });
-            if (result.modifiedCount) {
-                console.log(`🧹 אופסו ${result.modifiedCount} חיבורים "פעילים" תקועים מהרצה קודמת`);
-            }
-        } catch (resetErr) {
-            console.error('❌ שגיאה באיפוס חיבורים תקועים:', resetErr.message);
-        }
-
-        try {
-            // שלב 4: כמה משחקים יכולים להיות isActive:true בו-זמנית - מפעילים state
-            // טרי (idle) לכל אחד מהם מחדש אחרי restart של השרת (state בזיכרון אבד).
-            const activeGames = await Game.find({ isActive: true });
-            if (activeGames.length) {
-                activeGames.forEach((g) => activateGame(g));
-                console.log(`🎮 ${activeGames.length} משחקים פעילים: ${activeGames.map(g => g.name).join(', ')}`);
-            } else {
-                console.log('ℹ️ אין משחקים פעילים כרגע - יש להתחבר וליצור/להפעיל משחק דרך /games.html');
-            }
-        } catch (gameErr) {
-            console.error('❌ שגיאה בטעינת המשחקים הפעילים:', gameErr.message);
-        }
-    })
-    .catch((err) => {
-        console.error('❌ שגיאה בהתחברות ל-MongoDB:', err.message);
-        process.exit(1);
-    });
-
-mongoose.connection.on('disconnected', () => {
-    console.warn('⚠️ החיבור ל-MongoDB נותק');
-});
-
-app.use('/yemot', yemotRoutes);
-app.use('/admin', authRoutes);
-app.use('/admin', adminRoutes);
-app.use('/games', gamesRoutes);
-app.use('/payments', paymentRoutes);
-
-app.use(express.static('public'));
-
-io.on('connection', (socket) => {
-    console.log(`🖥️ דשבורד מנהל התחבר: ${socket.id}`);
-
-    // שלב 4: הדשבורד מצטרף ל-room של המשחק הספציפי שהוא מנהל, כדי לא לקבל
-    // עדכונים חיים ממשחקים אחרים שרצים בו-זמנית. נקרא מה-frontend מיד אחרי
-    // שהוא יודע איזה gameId הוא מציג (מה-URL).
-    socket.on('joinGame', (gameId) => {
-        if (!gameId) return;
-        socket.join(`game:${gameId}`);
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`🖥️ דשבורד מנהל התנתק: ${socket.id}`);
-    });
-});
-
-server.listen(PORT, () => {
-    console.log(`🚀 השרת רץ על פורט ${PORT}`);
-});
-
-// ===== סריקת ניתוקים תקופתית - מבוססת lastSeen בלבד (short-polling) =====
-setInterval(async () => {
-    const staleCallIds = getStaleCallIds();
-    const totalActive = getTotalConnectionCount();
-    // מודפס רק כשיש חיבורים חיים - כדי לא להציף את הלוגים כשאין משחק פעיל בכלל
-    if (totalActive > 0 || staleCallIds.length > 0) {
-        console.log(`[SWEEP] totalActive=${totalActive} staleFound=${staleCallIds.length}`);
-    }
-    for (const callId of staleCallIds) {
-        forget(callId);
-        try {
-            const player = await Player.findOneAndUpdate({ callId }, { active: false });
-            if (player) {
-                io.to(`game:${player.game}`).emit('playerDisconnected', { callId });
-            }
-            console.log(`[SWEEP] disconnected callId=${callId}`);
-        } catch (err) {
-            console.error('❌ שגיאה בניתוק שחקן תקוע:', err.message);
-        }
-    }
-}, CONFIG.SWEEP_INTERVAL_MS);
-
-// Keep-alive ping — מונע כיבוי של Render Free Tier
-if (process.env.RENDER_EXTERNAL_URL) {
-    setInterval(() => {
-        fetch(process.env.RENDER_EXTERNAL_URL + '/admin/me')
-            .catch(() => { }); // שגיאה בשקט
-    }, 10 * 60 * 1000); // כל 10 דקות
+function readSession(req) {
+  const c = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(COOKIE + '='));
+  if (!c) return null;
+  const [key, exp, sig] = decodeURIComponent(c.slice(COOKIE.length + 1)).split('.');
+  if (!key || !exp || !sig || sign(`${key}.${exp}`) !== sig || +exp < Date.now()) return null;
+  return config.TEAM.find(u => u.key === key) || null;
 }
-module.exports = { app, server, io };
+
+const attempts = new Map();
+app.post('/api/login', (req, res) => {
+  const ip = req.ip;
+  const a = attempts.get(ip) || { n: 0, t: Date.now() };
+  if (Date.now() - a.t > 10 * 60e3) { a.n = 0; a.t = Date.now(); }
+  if (a.n >= 8) return res.status(429).json({ error: 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות.' });
+  const u = config.TEAM.find(x => x.key === req.body.key);
+  const ok = u && crypto.timingSafeEqual(
+    crypto.createHash('sha256').update(String(req.body.password || '')).digest(),
+    crypto.createHash('sha256').update(u.password).digest());
+  if (!ok) { a.n++; attempts.set(ip, a); return res.status(401).json({ error: 'סיסמה שגויה' }); }
+  attempts.delete(ip);
+  const exp = Date.now() + MAX_AGE;
+  const val = `${u.key}.${exp}.${sign(`${u.key}.${exp}`)}`;
+  res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(val)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE / 1000}${req.secure ? '; Secure' : ''}`);
+  res.json({ key: u.key, name: u.name });
+});
+
+app.post('/api/logout', (req, res) => {
+  res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; Max-Age=0`);
+  res.json({ ok: true });
+});
+
+// מידע ציבורי: רק שמות הצוות (לבחירה במסך הכניסה)
+app.get('/api/public', (req, res) => {
+  res.json({ team: config.TEAM.map(u => ({ key: u.key, name: u.name })), me: readSession(req) && { key: readSession(req).key, name: readSession(req).name } });
+});
+
+// מכאן והלאה – רק למחוברים
+app.use('/api', (req, res, next) => {
+  const u = readSession(req);
+  if (!u) return res.status(401).json({ error: 'יש להתחבר' });
+  req.user = u;
+  next();
+});
+
+const h = fn => async (req, res) => {
+  try { res.json(await fn(req, res)); }
+  catch (e) {
+    if (!e.status) console.error(e);
+    res.status(e.status || 500).json({ error: e.status ? e.message : `שגיאה: ${e.message}` });
+  }
+};
+
+app.get('/api/config', h(req => ({
+  me: { key: req.user.key, name: req.user.name },
+  team: config.TEAM.map(u => ({ key: u.key, name: u.name })),
+  categories: config.CATEGORIES,
+  inbox: provider.address, manager: config.MANAGER_EMAIL,
+})));
+
+app.get('/api/status', h(() => ({ ...provider.status, provider: provider.name, configured: provider.configured() })));
+
+app.get('/api/inquiries', h(req => ({
+  items: engine.list(req.query, req.user), counts: engine.counts(req.user), status: provider.status,
+})));
+
+app.get('/api/inquiries/:id', h(req => engine.detail(engine.get(req.params.id))));
+app.post('/api/inquiries/:id/take', h(req => engine.take(req.params.id, req.user)));
+app.post('/api/inquiries/:id/release', h(req => engine.release(req.params.id, req.user)));
+app.post('/api/inquiries/:id/handled', h(req => engine.markHandled(req.params.id, req.user)));
+app.post('/api/inquiries/:id/reopen', h(req => engine.reopen(req.params.id, req.user)));
+app.post('/api/inquiries/:id/ignore', h(req => engine.ignore(req.params.id, req.user)));
+app.post('/api/inquiries/:id/categories', h(req => engine.setCategories(req.params.id, req.body.categories || [], req.user)));
+app.post('/api/inquiries/:id/escalate', h(req => engine.escalate(req.params.id, req.user, (req.body.note || '').trim())));
+app.post('/api/inquiries/:id/reply', upload.array('files', 10), h(req => {
+  const body = (req.body.body || '').trim();
+  if (!body) throw new AppError(400, 'אי אפשר לשלוח מענה ריק');
+  const files = (req.files || []).map(f => ({
+    name: Buffer.from(f.originalname, 'latin1').toString('utf8'), type: f.mimetype, size: f.size, buffer: f.buffer,
+  }));
+  return engine.reply(req.params.id, req.user, body, files);
+}));
+
+app.get('/api/attachments/:id', async (req, res) => {
+  try {
+    const a = await engine.attachment(req.params.id);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.name)}`);
+    res.type(a.type || 'application/octet-stream').send(a.content);
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// כלי בדיקה – רק במצב fake מקומי
+if (provider.name === 'fake') {
+  app.post('/api/test/incoming', h(async req => {
+    const { threadId, name, email, subject, text } = req.body;
+    if (threadId) {
+      const t = engine.get(threadId);
+      const li = t.lastIn;
+      return provider.incoming({ name: t.fromName, email: t.fromEmail, subject: 'Re: ' + t.subject, text: text || 'תודה!', inReplyTo: li.messageId, references: [...li.references, li.messageId] });
+    }
+    return provider.incoming({ name, email, subject, text });
+  }));
+}
+
+app.listen(config.PORT, () => {
+  console.log(`דשבורד הפניות רץ על פורט ${config.PORT} (ספק: ${provider.name}, צוות: ${config.TEAM.map(u => u.name).join(', ') || 'לא הוגדר'})`);
+  provider.start().catch(e => console.error('[start]', e));
+});

@@ -1,228 +1,86 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="he" dir="rtl">
-
 <head>
-
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <title>חידון קליקרים - חידונים חיים בטלפון</title>
-
-  <link rel="stylesheet" href="./css/index.css">
-
+  <title>ניהול פניות – קרן עולם התורה</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
 </head>
-
-
 <body>
-
-
-  <video class="background-video" autoplay muted loop playsinline>
-
-    <source src="videos/start.mp4" type="video/mp4">
-
-  </video>
-
-  <div class="video-overlay"></div>
-
-  <div class="glow glow-1"></div>
-  <div class="glow glow-2"></div>
-
-
-
-  <div class="nav">
-
-    <div class="brand">
-      <div class="brand-mark">🎉</div>
-      <span>קעמפ-קליק</span>
+  <!-- מסך כניסה -->
+  <div id="login" class="login" hidden>
+    <div class="login-card">
+      <div class="login-logo">💬</div>
+      <h1>ניהול פניות</h1>
+      <p class="login-sub">קרן עולם התורה</p>
+      <div id="login-step1">
+        <p class="login-q">מי נכנס/ת?</p>
+        <div class="login-users" id="login-users"></div>
+      </div>
+      <form id="login-step2" hidden>
+        <div class="login-who" id="login-who"></div>
+        <input type="password" id="login-pass" placeholder="סיסמה" autocomplete="current-password" required>
+        <button class="btn primary big" type="submit">כניסה</button>
+        <button class="linkish" type="button" id="login-back">→ בחירת משתמש אחר</button>
+        <div class="login-err" id="login-err"></div>
+      </form>
+      <p class="login-empty" id="login-empty" hidden>לא הוגדרו משתמשי צוות (TEAM_USERS).</p>
     </div>
-
-    <div class="nav-actions">
-
-      <button class="nav-btn" onclick="showTab('login')">
-        כניסה
-      </button>
-
-
-      <button class="nav-btn primary" onclick="showTab('register')">
-        הרשמה
-      </button>
-
-
-    </div>
-
   </div>
 
-
-
-
-
-  <div class="hero">
-
-
-    <div class="hero-copy">
-
-      <div class="hero-badges">
-        <span class="hero-badge">🎊 כיף למשפחה</span>
-        <span class="hero-badge">📱 משחקים מהטלפון</span>
-        <span class="hero-badge">⚡ ניקוד בזמן אמת</span>
+  <!-- האפליקציה -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">💬</div>
+        <div>
+          <div class="brand-title">ניהול פניות</div>
+          <div class="brand-sub">קרן עולם התורה</div>
+        </div>
       </div>
-
-      <h1>
-        ברוכים הבאים ל<span>קעמפ-קליק</span>
-      </h1>
-
-
-      <p>
-        בנו משחק, הזמינו את הקהל להתקשר,
-        והריצו חידון קליקרים חי -
-        עם שאלות, טיימר, וניקוד בזמן אמת
-        על מסך אחד משותף
-      </p>
-
-
-    </div>
-
-
-
-
-
-
-    <div class="auth-card">
-
-
-
-      <div class="auth-tabs">
-
-
-        <div class="auth-tab active" id="tabLogin" onclick="showTab('login')">
-
-          כניסה
-
-        </div>
-
-
-
-        <div class="auth-tab" id="tabRegister" onclick="showTab('register')">
-
-          הרשמה
-
-        </div>
-
-
+      <div class="sync" id="sync"></div>
+      <div class="me">
+        <span class="avatar sm" id="me-avatar"></span>
+        <span id="me-name"></span>
+        <button class="btn ghost sm" id="logout">יציאה</button>
       </div>
+    </header>
 
+    <div class="banner" id="banner" hidden></div>
 
+    <section class="stats" id="stats"></section>
 
-
-
-
-
-      <form class="auth-form active" id="loginForm">
-
-
-        <input type="email" id="loginEmail" placeholder="אימייל" required autocomplete="username">
-
-
-
-        <input type="password" id="loginPassword" placeholder="סיסמה" required autocomplete="current-password">
-
-
-
-        <button type="submit" class="auth-submit">
-
-          כניסה לחשבון
-
-        </button>
-
-
-
-        <div class="auth-error" id="loginError">
-
+    <main class="layout" id="layout">
+      <aside class="list-pane">
+        <nav class="tabs" id="tabs"></nav>
+        <div class="filters">
+          <div class="search-wrap"><span>🔍</span><input type="search" id="search" placeholder="חיפוש שם, מייל או תוכן"></div>
+          <div class="chips" id="chips"></div>
         </div>
-
-
-
-        <div class="auth-hint">
-
-          אין לך חשבון?
-
-          <a onclick="showTab('register')">
-            הרשמה
-          </a>
-
-        </div>
-
-
-
-      </form>
-
-
-
-
-
-
-
-
-      <form class="auth-form" id="registerForm">
-
-
-        <input type="email" id="regEmail" placeholder="כתובת אימייל" required autocomplete="username">
-
-
-
-        <input type="password" id="regPassword" placeholder="בחר סיסמה (לפחות 6 תווים)" required minlength="6"
-          autocomplete="new-password">
-
-
-
-        <button type="submit" class="auth-submit">
-
-          יצירת חשבון
-
-        </button>
-
-
-
-        <div class="auth-error" id="registerError">
-
-        </div>
-
-
-
-        <div class="auth-hint">
-
-          כבר יש לך חשבון?
-
-          <a onclick="showTab('login')">
-            כניסה
-          </a>
-
-        </div>
-
-
-      </form>
-
-
-
-
-      <div class="admin-link" onclick="location.href='/admin-login.html'">
-
-        כניסת מנהל מערכת
-
-      </div>
-
-
-
-    </div>
-
+        <ul class="inq-list" id="list"></ul>
+      </aside>
+      <section class="detail-pane" id="detail"></section>
+    </main>
   </div>
 
+  <dialog id="dlg-escalate" class="dlg">
+    <form method="dialog">
+      <div class="dlg-icon">↗</div>
+      <h3>העברה למנהל</h3>
+      <p class="muted">כל ההתכתבות והקבצים יישלחו במייל אל <b id="mgr-addr"></b>, והפניה תרד מהדשבורד.</p>
+      <label class="field">הערה למנהל (לא חובה)
+        <textarea id="esc-note" rows="3" placeholder="למשל: תורם גדול, מבקש שיחה אישית"></textarea>
+      </label>
+      <div class="dlg-actions">
+        <button value="ok" class="btn violet">העבר למנהל</button>
+        <button value="cancel" class="btn ghost">ביטול</button>
+      </div>
+    </form>
+  </dialog>
 
-
-
-  <script src="./js/index.js"></script>
-
-
+  <div class="toast" id="toast" hidden></div>
+  <script src="app.js"></script>
 </body>
-
 </html>
