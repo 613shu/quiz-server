@@ -28,7 +28,7 @@ module.exports = {
 
   GMAIL_USER: (env.GMAIL_USER || 'lmanhtzibur@gmail.com').toLowerCase(),
   GMAIL_APP_PASSWORD: (env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, ''),
-  FROM_NAME: env.FROM_NAME || 'קרן עולם התורה',
+  FROM_NAME: env.FROM_NAME || 'KOH Help',
   REPLY_TO: env.REPLY_TO || '',                         // ריק = תשובות הלקוח חוזרות ישירות לתיבה
   // כתובות שמעבירות אלינו מיילים (אם מגיע "Fwd" ידני מהן – נחלץ את הפונה המקורי)
   FORWARDERS: (env.FORWARDERS || 'help@koh.org.il').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
