@@ -6,6 +6,8 @@
 //
 // אפשרויות:  --dry-run   רק לספור מה יועתק, בלי לשנות כלום
 //            --no-state  לא להעתיק את יומן הפעולות
+//            --since=YYYY-MM-DD  רק הודעות שהגיעו לתיבה מהתאריך הזה והלאה, + כל הודעות הייבוא מאאוטלוק
+//                                + כל הודעה עם תווית KOH/..., וכל שרשור שיש בו הודעה כזו
 //
 // בטוח להריץ שוב ושוב: כל הודעה מסומנת בכותרת X-KOH-Migrate-Id, ובהרצה חוזרת מועתקות רק הודעות חדשות
 // והתוויות מסונכרנות לפי תיבת המקור. התיבה הישנה לא משתנה בכלל (נפתחת לקריאה בלבד).
@@ -63,13 +65,23 @@ async function run(src, dst, opts = {}) {
   const migId = m => `${srcValidity}-${m.uid}`;
   const stateMsgs = srcMsgs.filter(m => m.system === 'state');
   const skipped = { state: stateMsgs.length, importDone: 0, draft: 0 };
-  const todo = srcMsgs.filter(m => {
+  let todo = srcMsgs.filter(m => {
     if (m.system === 'state') return false;
     if (m.labels.has('KOH/imported')) { skipped.importDone++; return false; }   // מיילי בקשת ייבוא שכבר עובדו
     if (m.labels.has('\\Draft')) { skipped.draft++; return false; }
     return true;
   });
-  log(`בתיבה הישנה: ${srcMsgs.length} הודעות (${todo.length} להעברה; דולגו: ${skipped.importDone} בקשות ייבוא שכבר עובדו, ${skipped.state} יומן, ${skipped.draft} טיוטות)`);
+  let oldNote = '';
+  if (opts.since) {
+    // הודעה רלוונטית: הגיעה מאז התאריך, או יובאה מאאוטלוק, או מסומנת KOH/... – ואיתה כל השרשור שלה
+    const rel = m => m.importTag || (m.date && m.date >= opts.since) || [...m.labels].some(l => l.startsWith('KOH'));
+    const threads = new Set(todo.filter(rel).map(m => m.threadId).filter(Boolean));
+    const before = todo.length;
+    todo = todo.filter(m => rel(m) || (m.threadId && threads.has(m.threadId)));
+    oldNote = `, ${before - todo.length} הודעות ישנות שלא קשורות לקרן`;
+    log(`מסנן: רק מ-${opts.since.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' })} + ייבוא מאאוטלוק + תוויות KOH`);
+  }
+  log(`בתיבה הישנה: ${srcMsgs.length} הודעות (${todo.length} להעברה; דולגו: ${skipped.importDone} בקשות ייבוא שכבר עובדו, ${skipped.state} יומן, ${skipped.draft} טיוטות${oldNote})`);
 
   // התאמה בין הודעת מקור להודעה ביעד: לפי הכותרת שהסקריפט מוסיף, או הודעה שהגיעה ליעד בעצמה (אותו Message-ID)
   const match = dstMsgs => {
@@ -219,7 +231,10 @@ async function main() {
   try {
     await src.connect().catch(e => { throw new Error(`ההתחברות לתיבה הישנה נכשלה: ${e.responseText || e.message}`); });
     await dst.connect().catch(e => { throw new Error(`ההתחברות ל-${toUser} נכשלה – בדקו את סיסמת האפליקציה ושה-IMAP מופעל: ${e.responseText || e.message}`); });
-    await run(src, dst, { dryRun: argv.includes('--dry-run'), noState: argv.includes('--no-state'), toUser });
+    const sinceArg = (argv.find(a => a.startsWith('--since=')) || '').slice(8) || process.env.MIGRATE_SINCE || '';
+    let since = null;
+    if (sinceArg) { since = new Date(sinceArg + 'T00:00:00+03:00'); if (isNaN(since)) throw new Error(`תאריך לא תקין: ${sinceArg} (צריך YYYY-MM-DD)`); }
+    await run(src, dst, { dryRun: argv.includes('--dry-run'), noState: argv.includes('--no-state'), toUser, since });
   } finally {
     await src.logout().catch(() => {}); await dst.logout().catch(() => {});
   }
