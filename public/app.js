@@ -1,4 +1,3 @@
-
 /* דשבורד ניהול פניות – צד לקוח */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -245,12 +244,13 @@ function bubble(m, first) {
 
 function timeline(d) {
   const items = [
-    ...d.messages.map((m, i) => ({ at: m.date, html: bubble(m, i === 0) })),
+    ...d.messages.map((m, i) => ({ at: m.date, rank: 1, html: bubble(m, i === 0) })),
     ...d.events.filter(e => e.action !== 'reply').map(e => {
       const c = e.userKey ? teamColor(e.userKey) : '#8a90ab';
-      return { at: e.at, html: `<div class="event" style="--c:${c}">${EVENT_ICON[e.action] || '•'} <b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
+      return { at: e.at, rank: e.action === 'take' ? 0 : 2, html: `<div class="event" style="--c:${c}">${EVENT_ICON[e.action] || '•'} <b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
     }),
-  ].sort((a, b) => a.at.localeCompare(b.at));
+  // כמו במייל: החדש למעלה. באותה שנייה (כותרת Date של מייל מעוגלת לשניות): "לקח לטיפול" מתחת לתשובה, פעולות אחרות מעליה
+  ].sort((a, b) => b.at.slice(0, 19).localeCompare(a.at.slice(0, 19)) || b.rank - a.rank);
   let lastDay = null, html = '';
   for (const it of items) {
     const day = dayLabel(it.at);
@@ -311,11 +311,11 @@ function renderDetail() {
       <div class="d-cats"><span class="lbl">🏷️ קטגוריה:</span>${S.cfg.categories.map(c =>
         `<button class="cat-toggle ${d.categories.includes(c.key) ? 'on' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}</button>`).join('')}</div>
     </div>
-    <div class="convo" id="convo">${timeline(d)}</div>
-    ${composer}`;
+    ${composer}
+    <div class="convo" id="convo">${timeline(d)}</div>`;
   renderFiles();
   renderSendState();
-  const cv = $("#convo"); requestAnimationFrame(() => { cv.scrollTop = cv.scrollHeight; });
+  const cv = $("#convo"); requestAnimationFrame(() => { cv.scrollTop = 0; });
 }
 
 function composerHtml(d) {
