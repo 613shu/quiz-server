@@ -51,21 +51,75 @@ class Engine {
   userName(key) { return (this.team.get(key) || {}).name || key; }
 
   // ---------- בניית פניות ----------
+  // פניה = קבוצת הודעות. מתחילים מהשרשור של Gmail, ומאחדים שרשורים שהם בעצם אותה שיחה:
+  // 1. לפי הכותרות In-Reply-To / References (הודעה שעונה להודעה משרשור אחר).
+  // 2. אם ה-Message-ID השתנה בהעברה מאאוטלוק: אותו פונה + אותו נושא (בלי Re/Fw) בהפרש של עד 30 יום.
+  // זה חשוב במיוחד להודעות מיובאות – Gmail לא תמיד משייך אותן לשרשור הקיים.
   threads() {
     if (this.cache) return this.cache;
-    const groups = new Map();
-    for (const m of this.p.messages.values()) {
-      if (m.system || m.labels.has('\\Draft')) continue;
-      if (!groups.has(m.threadId)) groups.set(m.threadId, []);
-      groups.get(m.threadId).push(m);
-    }
+    const msgs = [...this.p.messages.values()].filter(m => !m.system && !m.labels.has('\\Draft'));
     const out = [];
-    for (const [threadId, msgs] of groups) {
-      const t = this.buildThread(threadId, msgs);
-      if (t) out.push(t);
+    this.alias = new Map();
+    for (const g of this.mergeGroups(msgs)) {
+      const t = this.buildThread(g.id, g.msgs, g.ids);
+      if (!t) continue;
+      out.push(t);
+      for (const x of g.ids) this.alias.set(x, g.id);
     }
     this.cache = new Map(out.map(t => [t.id, t]));
     return this.cache;
+  }
+
+  // מי הצד השני בשיחה (לאיחוד לפי נושא): בהודעה נכנסת – השולח, ביוצאת – הנמען
+  partyOf(m) {
+    const skip = a => !a || a === this.me || config.ACCEPT_TO.includes(a) || config.FORWARDERS.includes(a);
+    if (this.isOut(m)) return (m.to || []).find(a => !skip(a)) || null;
+    const a = m.replyTo && m.replyTo.address && !skip(m.replyTo.address) ? m.replyTo.address : m.from.address;
+    return skip(a) ? null : a;
+  }
+
+  mergeGroups(msgs) {
+    const tidOf = m => m.threadId ? String(m.threadId) : `u${m.uid}`;
+    const parent = new Map();
+    const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+    const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent.set(b, a); };
+    for (const m of msgs) parent.set(tidOf(m), tidOf(m));
+
+    // 1. לפי כותרות התשובה
+    const byMid = new Map();
+    for (const m of msgs) if (m.messageId) byMid.set(m.messageId, tidOf(m));
+    for (const m of msgs) {
+      for (const ref of [m.inReplyTo, ...(m.references || [])]) {
+        const other = ref && byMid.get(ref);
+        if (other) union(tidOf(m), other);
+      }
+    }
+
+    // 2. אותו פונה + אותו נושא, קרובים בזמן
+    const WINDOW = 30 * 24 * 3600e3;
+    const lastByKey = new Map();
+    const sorted = [...msgs].sort((a, b) => a.date.localeCompare(b.date));
+    for (const m of sorted) {
+      const party = this.partyOf(m);
+      const subj = baseSubject(m.subject).toLowerCase().replace(/\s+/g, ' ');
+      if (!party || subj.length < 2 || subj === '(ללא נושא)') continue;
+      const key = `${party}|${subj}`, prev = lastByKey.get(key), t = Date.parse(m.date);
+      if (prev && t - prev.t <= WINDOW) union(tidOf(m), prev.tid);
+      lastByKey.set(key, { t, tid: tidOf(m) });
+    }
+
+    const groups = new Map();
+    for (const m of msgs) {
+      const r = find(tidOf(m));
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(m);
+    }
+    // מזהה קבוע לפניה: השרשור של ההודעה החיה (לא מיובאת) הראשונה – כך ייבוא ישן לא משנה את המזהה
+    return [...groups.values()].map(list => {
+      list.sort((a, b) => a.date.localeCompare(b.date) || a.uid - b.uid);
+      const anchor = list.find(m => !m.imported) || list[0];
+      return { id: tidOf(anchor), ids: [...new Set(list.map(tidOf))], msgs: list };
+    });
   }
 
   // יוצאת = נשלחה מהדשבורד, או (בהודעות שיובאו מאאוטלוק) תשובה ישנה של הצוות מ-help@
@@ -74,7 +128,7 @@ class Engine {
       || (m.imported && (config.FORWARDERS.includes(m.from.address) || config.IMPORT_SENDERS.includes(m.from.address)));
   }
 
-  buildThread(threadId, msgs) {
+  buildThread(threadId, msgs, ids = [threadId]) {
     msgs.sort((a, b) => a.date.localeCompare(b.date) || a.uid - b.uid);
     const incoming = msgs.filter(m => !this.isOut(m));
     if (!incoming.length) return null;
@@ -97,8 +151,10 @@ class Engine {
     const replyTarget = senderOf(lastIn);
 
     // הודעות יוצאות שעוד לא הגיעו מהסנכרון
-    let pend = this.pending.get(threadId) || [];
+    let pend = ids.flatMap(x => this.pending.get(x) || []);
+    ids.forEach(x => { if (x !== threadId) this.pending.delete(x); });
     pend = pend.filter(p => !msgs.some(m => m.messageId === p.messageId) && Date.now() - Date.parse(p.date) < 15 * 60e3);
+    pend.sort((a, b) => a.date.localeCompare(b.date));
     if (pend.length) this.pending.set(threadId, pend); else this.pending.delete(threadId);
 
     const labels = new Set(msgs.flatMap(m => [...m.labels]));
@@ -133,6 +189,7 @@ class Engine {
 
     return {
       id: threadId,
+      ids,
       subject: first.subject,
       fromName: customer.name || customer.address,
       fromEmail: customer.address,
@@ -163,7 +220,7 @@ class Engine {
     return {
       ...this.summary(t),
       messages: t.messages,
-      events: this.log.filter(e => e.t === t.id).map(e => ({ at: e.at, user: e.user ? this.userName(e.user) : null, userKey: e.user, action: e.action, text: e.text })),
+      events: this.log.filter(e => t.ids.includes(e.t)).map(e => ({ at: e.at, user: e.user ? this.userName(e.user) : null, userKey: e.user, action: e.action, text: e.text })),
     };
   }
 
@@ -200,7 +257,8 @@ class Engine {
   }
 
   get(id) {
-    const t = this.threads().get(id);
+    const all = this.threads();
+    const t = all.get(id) || all.get(this.alias && this.alias.get(String(id)));
     if (!t) throw new AppError(404, 'הפניה לא נמצאה (ייתכן שנמחקה מהתיבה)');
     return t;
   }
@@ -315,13 +373,13 @@ class Engine {
         attachments: files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })),
       });
 
-      const pend = this.pending.get(id) || [];
+      const pend = this.pending.get(t.id) || [];
       pend.push({
         id: 'pending-' + Date.now(), direction: 'out', name: config.FROM_NAME, email: null,
         author: user.name, authorKey: user.key, date: new Date().toISOString(), body, quoted: null,
         attachments: files.map((f, i) => ({ id: null, name: f.name, type: f.type, size: f.size })), messageId,
       });
-      this.pending.set(id, pend);
+      this.pending.set(t.id, pend);
       // המייל כבר נשלח – גם אם עדכון התוויות נכשל, לא מחזירים שגיאה (אחרת ישלחו שוב)
       await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.reopen, L.followup]).catch(e => console.error('[reply] labels', e.message));
       this.addLog(id, user, 'reply', `השיב/ה ל-${t.replyTarget.address}`);
