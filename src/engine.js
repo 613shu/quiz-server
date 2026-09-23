@@ -68,14 +68,18 @@ class Engine {
     return this.cache;
   }
 
-  isOut(m) { return m.from.address === this.me || m.labels.has('\\Sent'); }
+  // יוצאת = נשלחה מהדשבורד, או (בהודעות שיובאו מאאוטלוק) תשובה ישנה של הצוות מ-help@
+  isOut(m) {
+    return m.from.address === this.me || m.labels.has('\\Sent')
+      || (m.imported && (config.FORWARDERS.includes(m.from.address) || config.IMPORT_SENDERS.includes(m.from.address)));
+  }
 
   buildThread(threadId, msgs) {
     msgs.sort((a, b) => a.date.localeCompare(b.date) || a.uid - b.uid);
     const incoming = msgs.filter(m => !this.isOut(m));
     if (!incoming.length) return null;
     // רק מיילים שהגיעו דרך help@ (לפי הנמען המקורי או נתיב ההעברה) – כדי שמיילים פרטיים לא ייכנסו
-    const viaHelp = m => m.to.some(a => config.ACCEPT_TO.includes(a)) || config.FORWARDERS.includes(m.from.address)
+    const viaHelp = m => m.imported || m.to.some(a => config.ACCEPT_TO.includes(a)) || config.FORWARDERS.includes(m.from.address)
       || config.ACCEPT_TO.some(a => (m.route || '').includes(a.split('@')[1]));
     if (config.ACCEPT_TO.length && !incoming.some(viaHelp)) return null;
 

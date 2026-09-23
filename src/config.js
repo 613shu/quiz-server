@@ -18,6 +18,7 @@ const CATEGORIES = [
   { key: 'double',    name: 'חיוב כפול / החזר',   color: '#ef4444' },
   { key: 'cancel',    name: 'ביטול / שינוי תרומה', color: '#f97316' },
   { key: 'ambassador',name: 'שגרירות',            color: '#ec4899' },
+  { key: 'proof',     name: 'אסמכתאות',           color: '#10b981', aliases: ['אסמכתא', 'אסמכתה', 'אסמכתאות', 'אסמכתות'] },
   { key: 'general',   name: 'כללי',               color: '#64748b' },
 ];
 
@@ -37,6 +38,10 @@ module.exports = {
   // שולחים שאינם פניות (הודעות מערכת של גוגל וכו') – מוסתרים אוטומטית
   IGNORE_SENDERS: (env.IGNORE_SENDERS || 'no-reply@accounts.google.com,forwarding-noreply@google.com,mail-noreply@google.com,mailer-daemon@googlemail.com')
     .toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
+
+  // ייבוא הודעות קיימות מאאוטלוק: רק מיילים מהכתובות האלה עם נושא "ייבוא: ..." מיובאים
+  IMPORT_SENDERS: (env.IMPORT_SENDERS || 'help@koh.org.il').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
+  IMPORT_REQUIRE_AUTH: env.IMPORT_REQUIRE_AUTH !== '0',   // בדיקת DKIM/DMARC שהמייל באמת הגיע מהכתובת
 
   MANAGER_EMAIL: env.MANAGER_EMAIL || 'israel@kerenolamhatorah.org',
   TEAM: parseTeam(env.TEAM_USERS),

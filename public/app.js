@@ -143,7 +143,24 @@ function renderTop() {
   if (st.error) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ ' + st.error; }
   else if (st.send && st.send.ok === false) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ שליחת מיילים לא זמינה כרגע – אפשר לקרוא פניות, אבל תשובות לא יישלחו. ' + (st.send.error || ''); }
   else if (!st.ready) { b.hidden = false; b.className = 'banner info'; b.textContent = '⏳ המערכת טוענת את כל המיילים מהתיבה. זה לוקח רגע בהפעלה הראשונה.'; }
+  else if (recentImports(st).length) {
+    const list = recentImports(st);
+    b.hidden = false; b.className = 'banner ' + (list.some(r => r.error) ? '' : 'ok');
+    b.innerHTML = list.map(importLine).join('<br>');
+  }
   else b.hidden = true;
+}
+
+// ייבוא הודעות מאאוטלוק – סיכום של מה שיובא ב-30 הדקות האחרונות
+const recentImports = st => (st.imports || []).filter(r => Date.now() - Date.parse(r.at) < 30 * 60e3).slice(0, 4);
+function importLine(r) {
+  const what = r.labels && r.labels.length ? ` (${esc(r.labels.join(', '))})` : '';
+  if (r.error) return `⚠️ ייבוא "${esc(r.subject)}" לא בוצע: ${esc(r.error)}`;
+  let t = `📥 יובאו <b>${r.added}</b> הודעות${what}`;
+  if (r.dup) t += ` · ${r.dup} כבר היו במערכת ודולגו`;
+  if (r.failed) t += ` · ${r.failed} לא נקראו`;
+  if (r.unknown && r.unknown.length) t += ` · לא זוהה בנושא: "${esc(r.unknown.join('", "'))}" (יובאו בלי הסיווג הזה)`;
+  return t + ` · ${ago(r.at)}`;
 }
 
 function renderStats() {

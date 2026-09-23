@@ -137,6 +137,8 @@ if (provider.name === 'fake') {
     }
     return provider.incoming({ name, email, subject, text });
   }));
+  // מייל גולמי (base64) – לבדיקת ייבוא
+  app.post('/api/test/raw', h(async req => { await provider.add(Buffer.from(req.body.raw, 'base64'), ['\\Inbox']); return { ok: true }; }));
 }
 
 app.listen(config.PORT, () => {

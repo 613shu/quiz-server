@@ -5,6 +5,7 @@ const { ImapFlow } = require('imapflow');
 const nodemailer = require('nodemailer');
 const config = require('../config');
 const { parseRaw } = require('./parse');
+const importer = require('../importer');
 
 const STATE_BOX = 'KOH-System';
 
@@ -84,7 +85,7 @@ class GmailProvider extends EventEmitter {
       this.trash = (find('\\Trash') || {}).path;
       if (!this.allMail) throw new Error('לא נמצאה תיקיית "כל הדואר" – ודאו ש-IMAP מופעל בג׳ימייל');
       // יצירת התוויות שהמערכת משתמשת בהן (אם עוד לא קיימות)
-      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened',
+      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', importer.LABEL_BOX, importer.DONE_LABEL,
         ...config.TEAM.map(u => `KOH/by/${u.key}`), ...config.CATEGORIES.map(c => `KOH/cat/${c.key}`)];
       for (const path of needed) if (!boxes.some(b => b.path === path)) await client.mailboxCreate(path).catch(() => {});
 
@@ -133,6 +134,7 @@ class GmailProvider extends EventEmitter {
     for (const m of fresh) {
       try {
         const rec = await parseRaw(m.source, { uid: m.uid, threadId: m.threadId, labels: m.labels, internalDate: m.internalDate });
+        if (!rec.system && importer.isImportRequest(rec)) rec.system = 'import-request';
         if (!rec.system && !config.FORWARDERS.includes(rec.from.address)) delete rec.fullText;
         this.messages.set(m.uid, rec);
         changed = true;
@@ -156,6 +158,13 @@ class GmailProvider extends EventEmitter {
 
     this.status.lastSync = new Date().toISOString();
     if (changed) this.emit('change');
+    // בקשות ייבוא מאאוטלוק – רצות אחרי שהסנכרון הסתיים
+    if (fresh.length) setImmediate(() => importer.processImports(this).catch(e => this.fail(e)));
+  }
+
+  // שמירת הודעה קיימת (ייבוא) ישירות לתיבה, עם התאריך המקורי
+  async appendRaw(raw, box, date) {
+    await this.client.append(box, raw, ['\\Seen'], date);
   }
 
   async modifyLabels(uids, add = [], remove = []) {

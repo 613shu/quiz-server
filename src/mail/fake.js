@@ -4,6 +4,7 @@ const { EventEmitter } = require('events');
 const MailComposer = require('nodemailer/lib/mail-composer');
 const config = require('../config');
 const { parseRaw } = require('./parse');
+const importer = require('../importer');
 
 const build = opts => new Promise((res, rej) => new MailComposer(opts).compile().build((e, m) => e ? rej(e) : res(m)));
 
@@ -45,6 +46,7 @@ class FakeProvider extends EventEmitter {
   async add(raw, labels) {
     const uid = ++this.uid;
     const rec = await parseRaw(raw, { uid, labels });
+    if (!rec.system && importer.isImportRequest(rec)) { rec.system = 'import-request'; setImmediate(() => importer.processImports(this, { checkAuth: false }).catch(e => console.error('[import]', e))); }
     rec.threadId = this.threadFor(rec);
     this.messages.set(uid, rec);
     this.raws.set(uid, raw);
@@ -74,6 +76,9 @@ class FakeProvider extends EventEmitter {
     const rec = await this.add(raw, ['\\Sent']);
     return rec.messageId;
   }
+
+  async appendRaw(raw, box) { await this.add(raw, [box]); }
+  async sync() {}
 
   async getRaw(uid) { return this.raws.get(uid); }
   loadState() { return this.state || null; }
