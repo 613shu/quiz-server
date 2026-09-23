@@ -220,7 +220,7 @@ function bubble(m, first) {
   const out = m.direction === 'out';
   const color = out ? (m.authorKey ? teamColor(m.authorKey) : '#3b6cf6') : custColor(S.detail.fromEmail);
   const who = out ? (m.author ? `${m.author} · צוות KOH` : 'צוות KOH') : (m.name || m.email || 'הפונה');
-  const tag = out ? 'תשובת הצוות' : 'הפונה';
+  const tag = out ? 'תשובת הצוות' : (m.reconstructed && m.email && m.email !== S.detail.fromEmail ? 'צד נוסף' : 'הפונה');
   // ההיסטוריה המצוטטת מוצגת רק בהודעה הראשונה – בשאר היא כבר מופיעה בשרשור עצמו
   const showQuoted = m.quoted && first;
   return `
@@ -229,10 +229,11 @@ function bubble(m, first) {
       <div class="bubble" style="--c:${color}">
         <div class="b-head">
           <span class="b-who"><span class="b-tag">${tag}</span>${esc(who)}</span>
-          <span class="b-time">${hm(m.date)}</span>
+          <span class="b-time">${m.dateUnknown ? '' : hm(m.date)}</span>
         </div>
         ${!out && m.email && m.email !== m.name ? `<div class="b-email">${esc(m.email)}</div>` : ''}
         <div class="b-body">${esc(m.body) || '<span class="b-empty">(הודעה ללא טקסט)</span>'}</div>
+        ${m.reconstructed ? '<div class="b-recon" title="ההודעה הזו לא יובאה בנפרד – היא שוחזרה מתוך ההיסטוריה שמצוטטת בהודעה מאוחרת יותר">↩ מתוך ההתכתבות המצוטטת</div>' : ''}
         ${showQuoted ? `<button class="q-toggle" data-q="${m.id}">הצג היסטוריה קודמת</button><div class="quoted" id="q-${m.id}" hidden>${esc(m.quoted)}</div>` : ''}
         ${m.attachments.length ? `<div class="atts">${m.attachments.map(a => a.id
           ? `<a class="att" href="/api/attachments/${encodeURIComponent(a.id)}">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a>`
@@ -244,7 +245,8 @@ function bubble(m, first) {
 
 function timeline(d) {
   const items = [
-    ...d.messages.map((m, i) => ({ at: m.date, rank: 1, html: bubble(m, i === 0) })),
+    // "היסטוריה קודמת" רק בהודעה האמיתית הראשונה שיש בה ציטוט שלא פורק לבועות
+    ...d.messages.map(m => ({ at: m.date, rank: 1, html: bubble(m, m === d.messages.find(x => x.quoted)) })),
     ...d.events.filter(e => e.action !== 'reply').map(e => {
       const c = e.userKey ? teamColor(e.userKey) : '#8a90ab';
       return { at: e.at, rank: e.action === 'take' ? 0 : 2, html: `<div class="event" style="--c:${c}">${EVENT_ICON[e.action] || '•'} <b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
