@@ -85,7 +85,7 @@ class GmailProvider extends EventEmitter {
       this.trash = (find('\\Trash') || {}).path;
       if (!this.allMail) throw new Error('לא נמצאה תיקיית "כל הדואר" – ודאו ש-IMAP מופעל בג׳ימייל');
       // יצירת התוויות שהמערכת משתמשת בהן (אם עוד לא קיימות)
-      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', 'KOH/followup', importer.LABEL_BOX, importer.DONE_LABEL,
+      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', importer.LABEL_BOX, importer.DONE_LABEL,
         ...config.TEAM.map(u => `KOH/by/${u.key}`), ...config.CATEGORIES.map(c => `KOH/cat/${c.key}`)];
       for (const path of needed) if (!boxes.some(b => b.path === path)) await client.mailboxCreate(path).catch(() => {});
 

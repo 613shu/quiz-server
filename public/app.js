@@ -268,10 +268,7 @@ function renderDetail() {
     <button class="btn green" data-act="handled">✓ סמן כטופל</button>
     <button class="btn violet" data-act="escalate">↗ העבר למנהל</button>
     <button class="btn ghost sm" data-act="release">↩ שחרר</button>`;
-  else if (d.status === 'handled') actions = `
-    <button class="btn primary" data-act="take" title="למשל: נזכרתם להוסיף משהו ללקוח">🙋 אני מטפל/ת בזה (תגובה נוספת)</button>
-    <button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
-  else if (['escalated', 'ignored'].includes(d.status)) actions = `<button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
+  else if (['handled', 'escalated', 'ignored'].includes(d.status)) actions = `<button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
 
   let owner = '';
   if (d.status === 'in_progress') owner = `<span class="owner">${avatar(d.assigneeName, teamColor(d.assignee), 'sm team')} ${mine ? 'בטיפול שלך' : `בטיפול של <b>${esc(d.assigneeName)}</b>`}</span>`;
