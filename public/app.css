@@ -184,7 +184,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .b-head { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; margin-bottom: 4px; }
 .b-who { font-weight: 700; font-size: 13.5px; }
 .row.out .b-who { color: var(--c); }
-.b-role { font-weight: 500; font-size: 12px; color: var(--muted); margin-inline-start: 6px; }
+.b-tag { display: inline-block; font-weight: 600; font-size: 11px; padding: 1px 8px; border-radius: 999px; margin-inline-end: 8px;
+  background: color-mix(in srgb, var(--c, #8a90ab) 14%, white); color: var(--c, var(--ink-2)); vertical-align: 1px; }
+.row.in .b-tag { --c: #6b7190; }
+.b-email { font-size: 12px; color: var(--muted); margin: -2px 0 6px; direction: ltr; text-align: right; }
+.b-empty { color: var(--muted); font-style: italic; }
 .b-time { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 .b-body { white-space: pre-wrap; line-height: 1.6; word-break: break-word; font-size: 14.5px; }
 .q-toggle { background: none; border: 0; padding: 4px 0 0; color: var(--muted); cursor: pointer; font-size: 12.5px; }
