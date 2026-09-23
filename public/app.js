@@ -1,3 +1,4 @@
+
 /* דשבורד ניהול פניות – צד לקוח */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -216,18 +217,24 @@ function renderList() {
     </li>`).join('');
 }
 
-function bubble(m) {
+function bubble(m, first) {
   const out = m.direction === 'out';
   const color = out ? (m.authorKey ? teamColor(m.authorKey) : '#3b6cf6') : custColor(S.detail.fromEmail);
-  const who = out ? (m.author || 'הצוות') : m.name;
-  const role = out ? (m.author ? 'מהצוות' : 'נשלח ישירות מהתיבה') : (m.email || '');
+  const who = out ? (m.author ? `${m.author} · צוות KOH` : 'צוות KOH') : (m.name || m.email || 'הפונה');
+  const tag = out ? 'תשובת הצוות' : 'הפונה';
+  // ההיסטוריה המצוטטת מוצגת רק בהודעה הראשונה – בשאר היא כבר מופיעה בשרשור עצמו
+  const showQuoted = m.quoted && first;
   return `
     <div class="row ${m.direction}">
-      ${avatar(who, color, out ? 'sm team' : 'sm')}
+      ${avatar(out ? (m.author || 'KOH') : who, color, out ? 'sm team' : 'sm')}
       <div class="bubble" style="--c:${color}">
-        <div class="b-head"><span class="b-who">${esc(who)}<span class="b-role">${esc(role)}</span></span><span class="b-time">${hm(m.date)}</span></div>
-        <div class="b-body">${esc(m.body)}</div>
-        ${m.quoted ? `<button class="q-toggle" data-q="${m.id}">··· הצג את ההודעה המצוטטת</button><div class="quoted" id="q-${m.id}" hidden>${esc(m.quoted)}</div>` : ''}
+        <div class="b-head">
+          <span class="b-who"><span class="b-tag">${tag}</span>${esc(who)}</span>
+          <span class="b-time">${hm(m.date)}</span>
+        </div>
+        ${!out && m.email && m.email !== m.name ? `<div class="b-email">${esc(m.email)}</div>` : ''}
+        <div class="b-body">${esc(m.body) || '<span class="b-empty">(הודעה ללא טקסט)</span>'}</div>
+        ${showQuoted ? `<button class="q-toggle" data-q="${m.id}">הצג היסטוריה קודמת</button><div class="quoted" id="q-${m.id}" hidden>${esc(m.quoted)}</div>` : ''}
         ${m.attachments.length ? `<div class="atts">${m.attachments.map(a => a.id
           ? `<a class="att" href="/api/attachments/${encodeURIComponent(a.id)}">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a>`
           : `<span class="att">📎 ${esc(a.name)}</span>`).join('')}</div>` : ''}
@@ -238,7 +245,7 @@ function bubble(m) {
 
 function timeline(d) {
   const items = [
-    ...d.messages.map(m => ({ at: m.date, html: bubble(m) })),
+    ...d.messages.map((m, i) => ({ at: m.date, html: bubble(m, i === 0) })),
     ...d.events.filter(e => e.action !== 'reply').map(e => {
       const c = e.userKey ? teamColor(e.userKey) : '#8a90ab';
       return { at: e.at, html: `<div class="event" style="--c:${c}">${EVENT_ICON[e.action] || '•'} <b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
@@ -501,7 +508,7 @@ function bindApp() {
   det.addEventListener('click', async e => {
     const a = e.target.closest('[data-act]'); if (a) return act(a.dataset.act);
     const q = e.target.closest('[data-q]');
-    if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? '··· הצג את ההודעה המצוטטת' : '··· הסתר'; return; }
+    if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? 'הצג היסטוריה קודמת' : 'הסתר היסטוריה'; return; }
     const rm = e.target.closest('[data-rm]'); if (rm) { filesOf(S.detail.id).splice(+rm.dataset.rm, 1); renderFiles(); return; }
     if (e.target.closest('#retry-btn')) return sendReply();
     if (e.target.closest('#err-x')) { delete S.sendErr[S.detail.id]; renderSendState(); return; }
