@@ -7,7 +7,14 @@ const QUOTE_MARKERS = [
   /^[ \t]*(בתאריך|ב-?[ \t]?\d).{0,120}(מאת|כתב\/ה|כתבה|כתב|<[^>\n]{1,200}@[^>\n]{1,200}>)[ \t]*:?[ \t]*$/m,
   /^[ \t]*On .{0,200}wrote:[ \t]*$/m,
   /^[ \t]*-{2,}[ \t]*(Original Message|הודעה מקורית|Forwarded message|הודעה שהועברה)[ \t]*-{2,}/mi,
-  /^[ \t]*(From|מאת)[ \t]*:[^\n]+\n[ \t]*(Sent|Date|נשלח|תאריך)[ \t]*:/mi,
+  // Outlook – גם בגרסה עם כוכביות של הדגשה: *מאת:* ... *נשלח:*
+  /^[ \t]*\*?(From|מאת)\*?[ \t]*:\*?[^\n]+\n[ \t]*\*?(Sent|Date|נשלח|תאריך)\*?[ \t]*:/mi,
+  // Gmail בעברית כשהכתובת נשברת לשורה הבאה: "בתאריך יום ג׳, 22 בספט׳ 2026 ב-23:30 מאת שם <x@y\n>:"
+  /^[ \t]*בתאריך[^\n]{0,160}\d{1,2}:\d{2}[^\n]{0,40}מאת[^\n]{0,250}$/m,
+  // Gmail באנגלית כש-"wrote:" נשבר לשורה הבאה
+  /^[ \t]*On [^\n]{0,200}\n[^\n]{0,200}wrote:[ \t]*$/m,
+  // קו מפריד של Outlook לפני כותרות ההודעה המקורית
+  /^[ \t]*-{20,}[ \t]*\n[ \t]*\*?(From|מאת)/mi,
   /^_{10,}[ \t]*$/m,
 ];
 
@@ -25,6 +32,13 @@ function trailingQuoteIndex(text) {
   return pos;
 }
 
+// הסרת חתימה: מהשורה "-- " (המפריד הסטנדרטי) ועד הסוף
+function stripSignature(text) {
+  const lines = text.split('\n');
+  const i = lines.findIndex(l => l === '-- ' || l === '--');
+  return i < 0 ? text : lines.slice(0, i).join('\n').trim();
+}
+
 function splitQuoted(text) {
   text = (text || '').replace(/\r\n/g, '\n').replace(/[\u200e\u200f\u202a\u202b\u202c]/g, '');
   let cut = -1;
@@ -35,10 +49,10 @@ function splitQuoted(text) {
   // שורות שמתחילות ב-> ברצף עד הסוף (סריקת שורות – ביטוי רגולרי כאן נתקע על מיילים מסוימים ומקפיא את השרת)
   const gt = trailingQuoteIndex(text);
   if (gt >= 0 && (cut < 0 || gt < cut)) cut = gt;
-  if (cut <= 0) return { body: text.trim(), quoted: null };
-  const body = text.slice(0, cut).trim();
-  const quoted = text.slice(cut).trim();
-  if (!body) return { body: text.trim(), quoted: null };
+  if (cut <= 0) return { body: stripSignature(text.trim()) || text.trim(), quoted: null };
+  const body = stripSignature(text.slice(0, cut).trim());
+  const quoted = stripSignature(text.slice(cut).trim());
+  if (!body) return { body: stripSignature(text.trim()) || text.trim(), quoted: null };
   return { body, quoted };
 }
 
