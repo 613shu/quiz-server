@@ -14,7 +14,7 @@ class GmailProvider extends EventEmitter {
     this.name = 'gmail';
     this.address = config.GMAIL_USER;
     this.messages = new Map();       // uid -> record
-    this.status = { connected: false, ready: false, lastSync: null, error: null };
+    this.status = { connected: false, ready: false, lastSync: null, error: null, send: { ok: null, error: null, checkedAt: null } };
     this.client = null;
     this.allMail = null;
     this.trash = null;
@@ -24,6 +24,8 @@ class GmailProvider extends EventEmitter {
     this.smtp = nodemailer.createTransport({
       host: 'smtp.gmail.com', port: 465, secure: true,
       auth: { user: config.GMAIL_USER, pass: config.GMAIL_APP_PASSWORD },
+      // זמני המתנה קצרים – כדי שתקלה תדווח תוך שניות ולא תשאיר את המשתמש מחכה דקות
+      connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 90000,
     });
   }
 
@@ -36,6 +38,22 @@ class GmailProvider extends EventEmitter {
     }
     await this.connect();
     setInterval(() => this.sync().catch(e => this.fail(e)), config.SYNC_INTERVAL_MS);
+    this.checkSend();
+  }
+
+  // בדיקה שאפשר לשלוח מיילים (SMTP). התוצאה מוצגת בדשבורד לפני שמישהו כותב תשובה.
+  async checkSend() {
+    clearTimeout(this.sendCheckTimer);
+    try {
+      await this.smtp.verify();
+      this.status.send = { ok: true, error: null, checkedAt: new Date().toISOString() };
+      console.log('[smtp] שליחת מיילים תקינה');
+    } catch (e) {
+      const fe = friendlySendError(e);
+      this.status.send = { ok: false, error: fe.message, checkedAt: new Date().toISOString() };
+      console.error('[smtp] שליחה לא זמינה:', e.code || '', e.message);
+    }
+    this.sendCheckTimer = setTimeout(() => this.checkSend(), this.status.send.ok ? 60 * 60e3 : 5 * 60e3);
   }
 
   fail(e) {
@@ -154,11 +172,20 @@ class GmailProvider extends EventEmitter {
   }
 
   async send(mail) {
-    const info = await this.smtp.sendMail({
-      from: { name: config.FROM_NAME, address: config.GMAIL_USER },
-      ...(config.REPLY_TO ? { replyTo: config.REPLY_TO } : {}),
-      ...mail,
-    });
+    let info;
+    try {
+      info = await this.smtp.sendMail({
+        from: { name: config.FROM_NAME, address: config.GMAIL_USER },
+        ...(config.REPLY_TO ? { replyTo: config.REPLY_TO } : {}),
+        ...mail,
+      });
+    } catch (e) {
+      console.error('[smtp] שליחה נכשלה:', e.code || '', e.responseCode || '', e.message);
+      const fe = friendlySendError(e);
+      if (fe.connection) this.status.send = { ok: false, error: fe.message, checkedAt: new Date().toISOString() };
+      throw fe;
+    }
+    this.status.send = { ok: true, error: null, checkedAt: new Date().toISOString() };
     setTimeout(() => this.sync().catch(() => {}), 2500);
     return info.messageId;
   }
@@ -194,6 +221,30 @@ class GmailProvider extends EventEmitter {
     await this.sync();
     if (old.length && this.trash) await this.client.messageMove(old.join(','), this.trash, { uid: true }).catch(() => {});
   }
+}
+
+// תרגום שגיאות שליחה להודעה ברורה בעברית
+function friendlySendError(e) {
+  const code = e.code || '', rc = e.responseCode || 0, msg = String(e.message || '');
+  let text, connection = false;
+  if (['ETIMEDOUT', 'ECONNECTION', 'ESOCKET', 'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ECONNRESET'].includes(code) || /greeting|timeout|timed out/i.test(msg)) {
+    connection = true;
+    text = 'המייל לא נשלח: השרת לא מצליח להתחבר לשירות השליחה של Gmail. (בשירות החינמי של Render שליחת מיילים חסומה – צריך תוכנית בתשלום.)';
+  } else if (code === 'EAUTH' || rc === 535 || rc === 534) {
+    connection = true;
+    text = 'המייל לא נשלח: Gmail דחה את פרטי ההתחברות. בדקו את סיסמת האפליקציה (GMAIL_APP_PASSWORD).';
+  } else if (rc === 552 || /size|too large/i.test(msg)) {
+    text = 'המייל לא נשלח: הקבצים המצורפים גדולים מדי. Gmail מאפשר עד 25MB בסך הכול.';
+  } else if (/5\.4\.5|daily|limit/i.test(msg)) {
+    text = 'המייל לא נשלח: הגעתם למגבלת השליחה היומית של Gmail. נסו שוב מחר.';
+  } else if (rc === 550 || rc === 553 || code === 'EENVELOPE') {
+    text = 'המייל לא נשלח: כתובת הנמען נדחתה. בדקו שכתובת המייל של הפונה תקינה.';
+  } else {
+    text = `המייל לא נשלח: ${msg}`;
+  }
+  const err = new Error(text);
+  err.status = 502; err.connection = connection;
+  return err;
 }
 
 function sameSet(a, b) { if (a.size !== b.size) return false; for (const x of a) if (!b.has(x)) return false; return true; }

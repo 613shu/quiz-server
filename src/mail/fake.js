@@ -16,7 +16,7 @@ class FakeProvider extends EventEmitter {
     this.raws = new Map();
     this.uid = 0;
     this.thr = 1000;
-    this.status = { connected: true, ready: false, lastSync: null, error: null };
+    this.status = { connected: true, ready: false, lastSync: null, error: null, send: { ok: !process.env.FAKE_SEND_FAIL, error: process.env.FAKE_SEND_FAIL ? 'המייל לא נשלח: השרת לא מצליח להתחבר לשירות השליחה של Gmail. (בדיקה)' : null } };
   }
   configured() { return true; }
 
@@ -67,6 +67,9 @@ class FakeProvider extends EventEmitter {
   }
 
   async send(mail) {
+    // לבדיקות: FAKE_SEND_DELAY=ms מדמה שליחה איטית, FAKE_SEND_FAIL=1 מדמה חסימת שליחה
+    if (process.env.FAKE_SEND_DELAY) await new Promise(r => setTimeout(r, +process.env.FAKE_SEND_DELAY));
+    if (process.env.FAKE_SEND_FAIL) { const e = new Error(this.status.send.error); e.status = 502; throw e; }
     const raw = await build({ from: { name: config.FROM_NAME, address: config.GMAIL_USER }, ...mail });
     const rec = await this.add(raw, ['\\Sent']);
     return rec.messageId;

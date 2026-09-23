@@ -95,7 +95,21 @@ app.post('/api/inquiries/:id/reopen', h(req => engine.reopen(req.params.id, req.
 app.post('/api/inquiries/:id/ignore', h(req => engine.ignore(req.params.id, req.user)));
 app.post('/api/inquiries/:id/categories', h(req => engine.setCategories(req.params.id, req.body.categories || [], req.user)));
 app.post('/api/inquiries/:id/escalate', h(req => engine.escalate(req.params.id, req.user, (req.body.note || '').trim())));
-app.post('/api/inquiries/:id/reply', upload.array('files', 10), h(req => {
+// העלאת קבצים עם הודעות שגיאה ברורות (במקום דף שגיאה כללי)
+const MAX_TOTAL = 24 * 1024 * 1024;
+const uploadFiles = (req, res, next) => upload.array('files', 10)(req, res, err => {
+  if (err) {
+    const msg = err.code === 'LIMIT_FILE_SIZE' ? 'אחד הקבצים גדול מ-20MB. אי אפשר לצרף אותו למייל.'
+      : err.code === 'LIMIT_FILE_COUNT' ? 'אפשר לצרף עד 10 קבצים למייל אחד.'
+      : `העלאת הקבצים נכשלה: ${err.message}`;
+    return res.status(413).json({ error: msg });
+  }
+  const total = (req.files || []).reduce((a, f) => a + f.size, 0);
+  if (total > MAX_TOTAL) return res.status(413).json({ error: 'הקבצים גדולים מדי יחד (מעל 24MB). Gmail לא יאפשר לשלוח אותם במייל אחד.' });
+  next();
+});
+
+app.post('/api/inquiries/:id/reply', uploadFiles, h(req => {
   const body = (req.body.body || '').trim();
   if (!body) throw new AppError(400, 'אי אפשר לשלוח מענה ריק');
   const files = (req.files || []).map(f => ({

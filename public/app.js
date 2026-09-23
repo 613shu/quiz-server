@@ -15,7 +15,7 @@ const EVENT_ICON = { take: '🙋', release: '↩️', handled: '✅', reopen: '�
 
 const S = {
   cfg: null, me: null, view: 'open', category: null, q: '',
-  items: [], counts: {}, status: {}, selId: null, detail: null, files: [], drafts: {},
+  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
 
@@ -23,17 +23,36 @@ const S = {
 async function api(path, opts = {}) {
   const headers = {};
   if (opts.json) { headers['content-type'] = 'application/json'; opts.body = JSON.stringify(opts.json); }
-  const res = await fetch('/api' + path, { method: opts.method || 'GET', headers, body: opts.body, credentials: 'same-origin' });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== '/login') { showLogin(); throw new Error(data.error || 'יש להתחבר'); }
-  if (!res.ok) throw new Error(data.error || 'שגיאה בתקשורת עם השרת');
-  return data;
+  let res;
+  try { res = await fetch('/api' + path, { method: opts.method || 'GET', headers, body: opts.body, credentials: 'same-origin' }); }
+  catch { throw new Error('אין חיבור לשרת. בדקו את החיבור לאינטרנט ונסו שוב.'); }
+  const data = await res.json().catch(() => null);
+  if (res.status === 401 && path !== '/login') { showLogin(); throw new Error((data && data.error) || 'יש להתחבר מחדש'); }
+  if (!res.ok) throw new Error(httpError(res.status, data));
+  return data || {};
 }
 
-function toast(msg, kind) {
-  const t = $('#toast');
-  t.textContent = msg; t.className = 'toast' + (kind ? ' ' + kind : ''); t.hidden = false;
-  clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 3000);
+function httpError(status, data) {
+  if (data && data.error) return data.error;
+  if (status === 413) return 'הקבצים גדולים מדי לשליחה.';
+  if (status >= 502 && status <= 504) return 'השרת לא הגיב בזמן (ייתכן שהוא מתעורר משינה). נסו שוב בעוד דקה.';
+  return `שגיאה בתקשורת עם השרת (${status}).`;
+}
+
+// הודעות קופצות: הצלחה נעלמת מהר, שגיאה נשארת עד שסוגרים (או 10 שניות)
+const TOAST_ICON = { ok: '✓', err: '!', info: 'i', wait: '' };
+function toast(msg, kind = 'info', ms) {
+  const box = $('#toasts');
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind;
+  t.setAttribute('role', kind === 'err' ? 'alert' : 'status');
+  t.innerHTML = `<span class="t-ic">${kind === 'wait' ? '<span class="spin"></span>' : TOAST_ICON[kind] || 'i'}</span><span class="t-msg">${esc(msg)}</span><button class="t-x" title="סגירה">✕</button>`;
+  const close = () => { t.classList.add('out'); setTimeout(() => t.remove(), 220); };
+  t.querySelector('.t-x').onclick = close;
+  box.appendChild(t);
+  const life = ms ?? (kind === 'err' ? 10000 : kind === 'wait' ? 0 : 3500);
+  if (life) setTimeout(close, life);
+  return { close, set(m, k) { t.className = 'toast ' + k; t.querySelector('.t-msg').textContent = m; t.querySelector('.t-ic').innerHTML = TOAST_ICON[k] || 'i'; setTimeout(close, k === 'err' ? 10000 : 3500); } };
 }
 
 const initials = n => { const w = String(n || '?').replace(/["'<>]/g, '').trim().split(/\s+/); return (w[0]?.[0] || '?') + (w[1]?.[0] || ''); };
@@ -62,6 +81,17 @@ function dayLabel(iso) {
 }
 const hm = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
 const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+const MB = 1048576, MAX_FILE = 20 * MB, MAX_TOTAL = 24 * MB, MAX_FILES = 10;
+function fileIcon(name, type = '') {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'].includes(ext)) return '🖼️';
+  if (ext === 'pdf') return '📕';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
+  if (['doc', 'docx'].includes(ext)) return '📝';
+  if (['zip', 'rar', '7z'].includes(ext)) return '🗜️';
+  return '📄';
+}
+const filesOf = id => (S.filesBy[id] ||= []);
 function ago(iso) {
   const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
   if (s < 60) return 'עכשיו';
@@ -111,6 +141,7 @@ function renderTop() {
   $('#sync').innerHTML = `<span class="${dot}"></span><span>${esc(txt)}</span>`;
   const b = $('#banner');
   if (st.error) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ ' + st.error; }
+  else if (st.send && st.send.ok === false) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ שליחת מיילים לא זמינה כרגע – אפשר לקרוא פניות, אבל תשובות לא יישלחו. ' + (st.send.error || ''); }
   else if (!st.ready) { b.hidden = false; b.className = 'banner info'; b.textContent = '⏳ המערכת טוענת את כל המיילים מהתיבה. זה לוקח רגע בהפעלה הראשונה.'; }
   else b.hidden = true;
 }
@@ -181,7 +212,7 @@ function bubble(m) {
         ${m.attachments.length ? `<div class="atts">${m.attachments.map(a => a.id
           ? `<a class="att" href="/api/attachments/${encodeURIComponent(a.id)}">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a>`
           : `<span class="att">📎 ${esc(a.name)}</span>`).join('')}</div>` : ''}
-        ${String(m.id).startsWith('pending') ? '<div class="sending">✓ נשלח</div>' : ''}
+        ${String(m.id).startsWith('pending') ? '<div class="sending">✓ נשלח ללקוח</div>' : ''}
       </div>
     </div>`;
 }
@@ -226,20 +257,7 @@ function renderDetail() {
   if (d.status === 'in_progress') owner = `<span class="owner">${avatar(d.assigneeName, teamColor(d.assignee), 'sm team')} ${mine ? 'בטיפול שלך' : `בטיפול של <b>${esc(d.assigneeName)}</b>`}</span>`;
 
   let composer;
-  if (mine) composer = `
-    <form class="composer" id="composer">
-      <div class="c-head">✉️ תשובה אל <b>${esc(d.fromName)}</b> · תישלח במייל באותה שרשרת</div>
-      <div class="c-box">
-        <textarea id="reply-body" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
-        <div class="c-foot">
-          <div class="files" id="files"></div>
-          <div style="display:flex;gap:8px">
-            <label class="btn ghost sm" style="cursor:pointer">📎 צירוף קובץ<input type="file" id="file-input" multiple hidden></label>
-            <button class="btn primary" type="submit" id="send-btn">שליחה ➤</button>
-          </div>
-        </div>
-      </div>
-    </form>`;
+  if (mine) composer = composerHtml(d);
   else if (d.status === 'new') composer = `<div class="locked">כדי לענות, לחצו <b>"אני מטפל/ת בזה"</b>. כך אף אחד אחר לא יענה במקביל.</div>`;
   else if (other) composer = `<div class="locked">🔒 <b>${esc(d.assigneeName)}</b> מטפל/ת בפניה הזו. אפשר לקרוא, אבל לא לענות.</div>`;
   else composer = '';
@@ -266,14 +284,144 @@ function renderDetail() {
     </div>
     <div class="convo" id="convo">${timeline(d)}</div>
     ${composer}`;
-  S.files = [];
   renderFiles();
+  renderSendState();
   const cv = $("#convo"); requestAnimationFrame(() => { cv.scrollTop = cv.scrollHeight; });
 }
 
+function composerHtml(d) {
+  const blocked = S.status.send && S.status.send.ok === false;
+  return `
+    <form class="composer" id="composer" novalidate>
+      <div class="c-head">✉️ תשובה אל <b>${esc(d.fromName)}</b> <span class="c-addr">${esc(d.fromEmail)}</span> · תישלח במייל באותה שרשרת</div>
+      ${blocked ? `<div class="c-warn">⚠️ שליחת מיילים לא זמינה כרגע בשרת, ולכן התשובה כנראה לא תישלח. אפשר לכתוב – הטיוטה נשמרת.</div>` : ''}
+      <div class="c-box" id="c-box">
+        <textarea id="reply-body" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
+        <div class="files" id="files"></div>
+        <div class="c-foot">
+          <span class="c-hint">אפשר לגרור קבצים לכאן · Ctrl+Enter לשליחה</span>
+          <div class="c-btns">
+            <label class="btn ghost sm file-btn">📎 צירוף קובץ<input type="file" id="file-input" multiple hidden></label>
+            <button class="btn primary" type="submit" id="send-btn">שליחה ➤</button>
+          </div>
+        </div>
+        <div class="drop-hint">📎 שחררו כאן כדי לצרף</div>
+      </div>
+      <div id="send-state"></div>
+    </form>`;
+}
+
 function renderFiles() {
-  const fl = $('#files'); if (!fl) return;
-  fl.innerHTML = S.files.map((f, i) => `<span class="file">📎 ${esc(f.name)}<button type="button" data-rm="${i}" title="הסרה">✕</button></span>`).join('');
+  const fl = $('#files'); if (!fl || !S.detail) return;
+  const files = filesOf(S.detail.id);
+  const total = files.reduce((a, f) => a + f.size, 0);
+  const locked = S.sending === S.detail.id;
+  fl.hidden = !files.length;
+  fl.innerHTML = files.map((f, i) => `
+    <span class="file">
+      <span class="f-ic">${fileIcon(f.name, f.type)}</span>
+      <span class="f-name" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span class="f-sz">${fmtSize(f.size)}</span>
+      ${locked ? '' : `<button type="button" data-rm="${i}" title="הסרת הקובץ">✕</button>`}
+    </span>`).join('') +
+    (files.length ? `<span class="f-total ${total > MAX_TOTAL ? 'bad' : ''}">${files.length} ${files.length === 1 ? 'קובץ' : 'קבצים'} · ${fmtSize(total)}${total > MAX_TOTAL ? ' – מעל 24MB, הסירו קבצים' : ''}</span>` : '');
+}
+
+function addFiles(list) {
+  if (!S.detail || S.sending === S.detail.id) return;
+  const files = filesOf(S.detail.id), problems = [];
+  for (const f of list) {
+    if (!f.size) { problems.push(`"${f.name}" ריק או שאינו קובץ`); continue; }
+    if (f.size > MAX_FILE) { problems.push(`"${f.name}" גדול מדי (${fmtSize(f.size)}). המקסימום לקובץ הוא 20MB`); continue; }
+    if (files.length >= MAX_FILES) { problems.push(`אפשר לצרף עד ${MAX_FILES} קבצים`); break; }
+    if (files.some(x => x.name === f.name && x.size === f.size)) continue;
+    files.push(f);
+  }
+  renderFiles();
+  if (problems.length) toast(problems.join(' · '), 'err');
+}
+
+// מצב השליחה בתוך אזור הכתיבה: התקדמות, הצלחה או שגיאה עם "נסו שוב"
+function renderSendState(p) {
+  const el = $('#send-state'); if (!el || !S.detail) return;
+  const id = S.detail.id;
+  const box = $('#c-box'), btn = $('#send-btn'), ta = $('#reply-body'), fb = $('.file-btn');
+  const busy = S.sending === id;
+  if (box) box.classList.toggle('busy', busy);
+  if (ta) ta.readOnly = busy;
+  if (btn) { btn.disabled = busy; btn.innerHTML = busy ? '<span class="spin"></span> שולח…' : 'שליחה ➤'; }
+  if (fb) fb.classList.toggle('disabled', busy);
+  if (busy) {
+    p = p || S.sendProgress || { stage: 'send' };
+    const hasFiles = p.total > 0;
+    const pct = hasFiles ? Math.round((p.loaded / p.total) * 100) : 0;
+    const step = (n, label, state, extra = '') => `<div class="st ${state}"><span class="st-dot">${state === 'done' ? '✓' : n}</span><span>${label}${extra}</span></div>`;
+    const same = el.firstElementChild && el.firstElementChild.classList.contains('progress');
+    el.innerHTML = `<div class="send-box progress${same ? ' still' : ''}">
+      ${hasFiles ? step(1, 'מעלה את הקבצים לשרת', p.stage === 'upload' ? 'now' : 'done', p.stage === 'upload' ? ` · ${pct}% (${fmtSize(p.loaded)} מתוך ${fmtSize(p.total)})` : '') : ''}
+      ${step(hasFiles ? 2 : 1, 'שולח את המייל ללקוח', p.stage === 'send' ? 'now' : '', p.stage === 'send' ? ' – זה יכול לקחת כמה שניות' : '')}
+      <div class="bar ${p.stage === 'send' ? 'indet' : ''}"><span style="width:${p.stage === 'upload' ? pct : 100}%"></span></div>
+    </div>`;
+  } else if (S.sendErr[id]) {
+    el.innerHTML = `<div class="send-box err" role="alert">
+      <div class="se-title">✕ התשובה לא נשלחה</div>
+      <div class="se-msg">${esc(S.sendErr[id])}</div>
+      <div class="se-foot">הטקסט והקבצים נשמרו – לא צריך לכתוב מחדש.
+        <button type="button" class="btn sm red" id="retry-btn">↻ נסו לשלוח שוב</button>
+        <button type="button" class="btn ghost sm" id="err-x">סגירה</button></div>
+    </div>`;
+  } else if (S.sentOk[id]) {
+    el.innerHTML = `<div class="send-box ok" role="status">✓ התשובה נשלחה בהצלחה ל-<b>${esc(S.sentOk[id])}</b>.</div>`;
+  } else el.innerHTML = '';
+}
+
+// שליחה עם מעקב התקדמות (XHR – כדי לראות את העלאת הקבצים)
+function postWithProgress(url, fd, onUp) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api' + url);
+    x.timeout = 180000;
+    x.upload.onprogress = e => e.lengthComputable && onUp(e.loaded, e.total);
+    x.upload.onload = () => onUp(-1, -1);
+    x.onload = () => {
+      let data = null; try { data = JSON.parse(x.responseText); } catch {}
+      if (x.status === 401) { showLogin(); return reject(new Error('פג תוקף הכניסה – התחברו שוב ונסו לשלוח.')); }
+      if (x.status >= 200 && x.status < 300 && data) resolve(data); else reject(new Error(httpError(x.status, data)));
+    };
+    x.onerror = () => reject(new Error('אין חיבור לשרת. בדקו את החיבור לאינטרנט ונסו שוב.'));
+    x.ontimeout = () => reject(new Error('השליחה לקחה יותר מדי זמן ונעצרה. ייתכן שהמייל לא נשלח – רעננו את הפניה ובדקו לפני שליחה חוזרת.'));
+    x.send(fd);
+  });
+}
+
+async function sendReply() {
+  const d = S.detail; if (!d || S.sending) return;
+  const id = d.id;
+  const body = ($('#reply-body').value || '').trim();
+  if (!body) { $('#reply-body').focus(); $('#c-box').classList.add('shake'); setTimeout(() => $('#c-box')?.classList.remove('shake'), 500); return toast('כתבו תשובה לפני השליחה', 'err', 4000); }
+  const files = filesOf(id);
+  const total = files.reduce((a, f) => a + f.size, 0);
+  if (total > MAX_TOTAL) return toast('הקבצים גדולים מדי יחד (מעל 24MB). הסירו חלק מהם ונסו שוב.', 'err');
+  const fd = new FormData(); fd.append('body', body); files.forEach(f => fd.append('files', f));
+
+  S.sending = id; delete S.sendErr[id]; delete S.sentOk[id];
+  S.sendProgress = files.length ? { stage: 'upload', loaded: 0, total } : { stage: 'send' };
+  renderFiles(); renderSendState();
+  try {
+    const res = await postWithProgress(`/inquiries/${encodeURIComponent(id)}/reply`, fd, (loaded, tot) => {
+      S.sendProgress = loaded < 0 || loaded >= tot ? { stage: 'send', loaded: total, total } : { stage: 'upload', loaded, total: tot };
+      if (S.detail && S.detail.id === id) renderSendState();
+    });
+    S.sending = null; S.sendProgress = null;
+    delete S.drafts[id]; S.filesBy[id] = []; S.sentOk[id] = d.fromEmail;
+    toast(`התשובה נשלחה ל-${d.fromName} ✓`, 'ok');
+    if (S.detail && S.detail.id === id) { S.detail = res; renderDetail(); }
+    loadList().catch(() => {});
+  } catch (err) {
+    S.sending = null; S.sendProgress = null; S.sendErr[id] = err.message;
+    if (S.detail && S.detail.id === id) { renderFiles(); renderSendState(); $('#send-state')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    else toast(err.message, 'err');
+  }
 }
 
 // ---------- data ----------
@@ -300,13 +448,17 @@ async function act(action) {
   if (action === 'back') { $('#layout').classList.remove('show-detail'); return; }
   if (action === 'escalate') { $('#esc-note').value = ''; $('#dlg-escalate').returnValue = ''; $('#dlg-escalate').showModal(); return; }
   const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן כטופל ✓', reopen: 'הפניה חזרה לפתוחות', ignore: 'הוסתר – לא פניה' };
-  document.querySelectorAll('[data-act]').forEach(b => (b.disabled = true));
+  if (action === 'release' && ($('#reply-body')?.value.trim() || filesOf(d.id).length) && !confirm('יש טיוטה שלא נשלחה. לשחרר את הפניה בכל זאת? (הטיוטה תישמר)')) return;
+  const clicked = document.querySelector(`[data-act="${action}"]`);
+  document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
+  if (clicked) clicked.innerHTML = '<span class="spin"></span> ' + clicked.textContent.replace(/^\S+\s/, '');
   try {
     S.detail = await api(`/inquiries/${encodeURIComponent(d.id)}/${action}`, { method: 'POST' });
+    delete S.sentOk[d.id];
     toast(msgs[action] || 'עודכן', 'ok');
     await loadList(); renderDetail();
     if (action === 'take') $('#reply-body')?.focus();
-  } catch (e) { toast(e.message, 'err'); await refresh(); }
+  } catch (e) { toast(e.message, 'err'); await refresh().catch(() => {}); }
 }
 
 async function refresh() {
@@ -328,7 +480,9 @@ function bindApp() {
     const a = e.target.closest('[data-act]'); if (a) return act(a.dataset.act);
     const q = e.target.closest('[data-q]');
     if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? '··· הצג את ההודעה המצוטטת' : '··· הסתר'; return; }
-    const rm = e.target.closest('[data-rm]'); if (rm) { S.files.splice(+rm.dataset.rm, 1); renderFiles(); return; }
+    const rm = e.target.closest('[data-rm]'); if (rm) { filesOf(S.detail.id).splice(+rm.dataset.rm, 1); renderFiles(); return; }
+    if (e.target.closest('#retry-btn')) return sendReply();
+    if (e.target.closest('#err-x')) { delete S.sendErr[S.detail.id]; renderSendState(); return; }
     const c = e.target.closest('.cat-toggle');
     if (c) {
       const d = S.detail, k = c.dataset.cat;
@@ -337,29 +491,26 @@ function bindApp() {
       catch (err) { toast(err.message, 'err'); }
     }
   });
-  det.addEventListener('change', e => { if (e.target.id === 'file-input') { S.files.push(...e.target.files); e.target.value = ''; renderFiles(); } });
+  det.addEventListener('change', e => { if (e.target.id === 'file-input') { addFiles([...e.target.files]); e.target.value = ''; } });
+  // גרירת קבצים והדבקת תמונות
+  let dragN = 0;
+  det.addEventListener('dragenter', e => { if (!$('#c-box') || !e.dataTransfer?.types.includes('Files')) return; e.preventDefault(); dragN++; $('#c-box').classList.add('drag'); });
+  det.addEventListener('dragover', e => { if ($('#c-box') && e.dataTransfer?.types.includes('Files')) e.preventDefault(); });
+  det.addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('#c-box')?.classList.remove('drag'); } });
+  det.addEventListener('drop', e => { if (!$('#c-box')) return; e.preventDefault(); dragN = 0; $('#c-box').classList.remove('drag'); addFiles([...e.dataTransfer.files]); });
+  det.addEventListener('paste', e => { if (e.target.id !== 'reply-body') return; const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); } });
+  det.addEventListener('keydown', e => { if (e.target.id === 'reply-body' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); } });
   det.addEventListener('input', e => { if (e.target.id === 'reply-body') S.drafts[S.detail.id] = e.target.value; });
-  det.addEventListener('submit', async e => {
-    e.preventDefault();
-    const body = $('#reply-body').value.trim();
-    if (!body) return toast('כתבו תשובה לפני השליחה', 'err');
-    const fd = new FormData(); fd.append('body', body); S.files.forEach(f => fd.append('files', f));
-    const btn = $('#send-btn'); btn.disabled = true; btn.textContent = 'שולח…';
-    try {
-      S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/reply`, { method: 'POST', body: fd });
-      delete S.drafts[S.detail.id];
-      toast('התשובה נשלחה ללקוח ✓', 'ok');
-      await loadList(); renderDetail();
-    } catch (err) { toast(err.message, 'err'); btn.disabled = false; btn.textContent = 'שליחה ➤'; }
-  });
+  det.addEventListener('submit', e => { e.preventDefault(); sendReply(); });
 
   $('#dlg-escalate').addEventListener('close', async () => {
     if ($('#dlg-escalate').returnValue !== 'ok') return;
-    toast('מעביר למנהל…');
+    const t = toast('מעביר למנהל – אוסף את כל ההתכתבות והקבצים ושולח…', 'wait');
+    document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
     try {
       S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/escalate`, { method: 'POST', json: { note: $('#esc-note').value } });
-      toast('הפניה הועברה למנהל ✓', 'ok'); await loadList(); renderDetail();
-    } catch (e) { toast(e.message, 'err'); }
+      t.set(`הפניה הועברה למנהל (${S.cfg.manager}) ✓`, 'ok'); await loadList(); renderDetail();
+    } catch (e) { t.set('ההעברה למנהל נכשלה: ' + e.message, 'err'); document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = false)); }
   });
 
   $('#logout').addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); location.reload(); });
@@ -379,13 +530,15 @@ async function startApp() {
   setInterval(async () => {
     if (document.hidden || document.querySelector('dialog[open]') || $('#app').hidden) return;
     await loadList().catch(() => {});
-    const busy = document.activeElement?.id === 'reply-body' || S.files.length;
+    const busy = S.sending || document.activeElement?.id === 'reply-body' || (S.selId && filesOf(S.selId).length);
     if (S.selId && !busy) {
       const fresh = await api('/inquiries/' + encodeURIComponent(S.selId)).catch(() => null);
       if (fresh && JSON.stringify(fresh) !== JSON.stringify(S.detail)) { S.detail = fresh; renderDetail(); }
     }
   }, 20000);
 }
+
+window.addEventListener('beforeunload', e => { if (S.sending) { e.preventDefault(); e.returnValue = ''; } });
 
 (async function boot() {
   bindLogin();

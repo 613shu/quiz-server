@@ -309,7 +309,8 @@ class Engine {
         attachments: files.map((f, i) => ({ id: null, name: f.name, type: f.type, size: f.size })), messageId,
       });
       this.pending.set(id, pend);
-      await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.reopen]);
+      // המייל כבר נשלח – גם אם עדכון התוויות נכשל, לא מחזירים שגיאה (אחרת ישלחו שוב)
+      await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.reopen]).catch(e => console.error('[reply] labels', e.message));
       this.addLog(id, user, 'reply', `השיב/ה ל-${t.replyTarget.address}`);
       return this.refresh(id);
     });
@@ -349,7 +350,7 @@ class Engine {
         headers: { 'X-KOH-System': 'forward', 'X-KOH-Author': user.key },
         attachments,
       });
-      await this.p.modifyLabels(t.uids, [L.esc], this.byLabels());
+      await this.p.modifyLabels(t.uids, [L.esc], this.byLabels()).catch(e => console.error('[escalate] labels', e.message));
       this.addLog(id, user, 'escalate', `העביר/ה למנהל (${config.MANAGER_EMAIL})${note ? ' – ' + note : ''}`);
       return this.refresh(id);
     });
