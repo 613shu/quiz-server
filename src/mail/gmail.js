@@ -7,7 +7,13 @@ const config = require('../config');
 const { parseRaw } = require('./parse');
 const importer = require('../importer');
 
+const MailComposer = require('nodemailer/lib/mail-composer');
+
 const STATE_BOX = 'KOH-System';
+const build = opts => new Promise((res, rej) => new MailComposer(opts).compile().build((e, m) => e ? rej(e) : res(m)));
+// הכתובת שממנה יוצאות התשובות: SEND_USER אם הוגדר, אחרת תיבת הקריאה
+const SENDER = config.SEND_USER || config.GMAIL_USER;
+const SENDER_PASS = config.SEND_USER ? config.SEND_APP_PASSWORD : config.GMAIL_APP_PASSWORD;
 
 class GmailProvider extends EventEmitter {
   constructor() {
@@ -22,9 +28,10 @@ class GmailProvider extends EventEmitter {
     this.uidValidity = null;
     this.maxUid = 0;
     this.syncing = null;
+    this.sentBox = null;
     this.smtp = nodemailer.createTransport({
       host: 'smtp.gmail.com', port: 465, secure: true,
-      auth: { user: config.GMAIL_USER, pass: config.GMAIL_APP_PASSWORD },
+      auth: { user: SENDER, pass: SENDER_PASS },
       // זמני המתנה קצרים – כדי שתקלה תדווח תוך שניות ולא תשאיר את המשתמש מחכה דקות
       connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 90000,
     });
@@ -83,6 +90,7 @@ class GmailProvider extends EventEmitter {
       const find = flag => boxes.find(b => b.specialUse === flag);
       this.allMail = (find('\\All') || {}).path;
       this.trash = (find('\\Trash') || {}).path;
+      this.sentBox = (find('\\Sent') || {}).path;
       if (!this.allMail) throw new Error('לא נמצאה תיקיית "כל הדואר" – ודאו ש-IMAP מופעל בג׳ימייל');
       // יצירת התוויות שהמערכת משתמשת בהן (אם עוד לא קיימות)
       const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', 'KOH/followup', importer.LABEL_BOX, importer.DONE_LABEL,
@@ -206,13 +214,20 @@ class GmailProvider extends EventEmitter {
   }
 
   async send(mail) {
+    const separate = SENDER !== config.GMAIL_USER;
+    const opts = {
+      from: { name: config.FROM_NAME, address: SENDER },
+      ...(config.REPLY_TO ? { replyTo: config.REPLY_TO } : {}),
+      ...mail,
+    };
+    if (separate) {
+      // מזהה ותאריך קבועים – כדי שהעותק שנשמר בתיבת הקריאה יהיה זהה למה שנשלח
+      opts.messageId = opts.messageId || `<${Date.now()}.${Math.random().toString(36).slice(2)}@${SENDER.split('@')[1]}>`;
+      opts.date = opts.date || new Date();
+    }
     let info;
     try {
-      info = await this.smtp.sendMail({
-        from: { name: config.FROM_NAME, address: config.GMAIL_USER },
-        ...(config.REPLY_TO ? { replyTo: config.REPLY_TO } : {}),
-        ...mail,
-      });
+      info = await this.smtp.sendMail(opts);
     } catch (e) {
       console.error('[smtp] שליחה נכשלה:', e.code || '', e.responseCode || '', e.message);
       const fe = friendlySendError(e);
@@ -220,6 +235,15 @@ class GmailProvider extends EventEmitter {
       throw fe;
     }
     this.status.send = { ok: true, error: null, checkedAt: new Date().toISOString() };
+    // שליחה מתיבה אחרת: שומרים עותק ב"דואר יוצא" של תיבת הקריאה, כדי שהדשבורד יראה את התשובה
+    if (separate) {
+      try {
+        const raw = await build(opts);
+        await this.client.append(this.sentBox || this.allMail, raw, ['\\Seen'], opts.date);
+      } catch (e) {
+        console.error('[smtp] המייל נשלח, אבל שמירת העותק בתיבה נכשלה:', e.message);
+      }
+    }
     setTimeout(() => this.sync().catch(() => {}), 2500);
     return info.messageId;
   }
