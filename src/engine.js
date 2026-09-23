@@ -3,6 +3,7 @@
 const config = require('./config');
 const { categorize } = require('./categorize');
 const { extractForwardedSender, extractAttachment, allAttachments } = require('./mail/parse');
+const { splitHistory, bodyKey } = require('./mail/history');
 
 const L = {
   done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup',
@@ -187,6 +188,11 @@ class Engine {
       attachments: m.attachments.map(a => ({ id: `${m.uid}-${a.index}`, name: a.name, type: a.type, size: a.size })),
     });
 
+    // ההתכתבות המלאה: הודעות שלא נמצאות בתיבה (לא יובאו) משוחזרות מתוך הציטוט של ההודעות שכן קיימות
+    const shown = msgs.map(view);
+    const history = this.reconstruct(msgs, shown, customer);
+    const messages = [...shown, ...history].sort((a, b) => a.date.localeCompare(b.date));
+
     return {
       id: threadId,
       ids,
@@ -200,9 +206,48 @@ class Engine {
       uids: msgs.map(m => m.uid),
       lastUid: last.uid,
       lastIn,
-      messages: [...msgs.map(view), ...pend],
+      messages: [...messages, ...pend],
       raw: msgs,
     };
+  }
+
+  // פירוק הציטוטים להודעות נפרדות, בלי כפילויות מול ההודעות האמיתיות (לפי כיוון + זמן, או תוכן זהה)
+  reconstruct(msgs, shown, customer) {
+    const own = a => !!a && (a === this.me || config.FORWARDERS.includes(a) || config.IMPORT_SENDERS.includes(a)
+      || config.ACCEPT_TO.includes(a) || config.TEAM_DOMAINS.some(d => a.endsWith('@' + d)));
+    const ownName = n => !!n && (n === config.FROM_NAME || /koh|help|עולם התורה/i.test(n));
+    const known = shown.map(v => ({ dir: v.direction, t: Date.parse(v.date), key: bodyKey(v.body) }));
+    const same = (a, b) => a.dir === b.dir && (
+      (a.t && b.t && Math.abs(a.t - b.t) <= 3 * 60e3)
+      || (a.key && a.key === b.key && (!a.t || !b.t || Math.abs(a.t - b.t) <= 15 * 3600e3)));   // אותו תוכן (גם אם השעה בציטוט באזור זמן אחר)
+    const byUid = new Map(shown.map(v => [v.id, v]));
+    const out = [];
+    // מהחדשה לישנה – בהודעה האחרונה נמצאת ההיסטוריה המלאה ביותר
+    for (const m of [...msgs].sort((a, b) => b.date.localeCompare(a.date))) {
+      if (!m.quoted) continue;
+      if (!m._hist) m._hist = splitHistory(m.quoted);
+      const { parts, complete } = m._hist;
+      if (complete && byUid.get(m.uid)) byUid.get(m.uid).quoted = null;   // הכול פורק לבועות – אין צורך בכפתור "היסטוריה קודמת"
+      const base = Date.parse(m.date);
+      parts.forEach((p, i) => {
+        let t = p.date ? Date.parse(p.date) : null;
+        if (t && t > base + 5 * 60e3) t = null;     // תאריך לא הגיוני (אחרי ההודעה שמצטטת אותו)
+        const dir = own(p.address) || (!p.address && ownName(p.name)) ? 'out' : 'in';
+        const c = { dir, t, key: bodyKey(p.body) };
+        if (!c.key) return;
+        if (known.some(k => same(k, c))) return;
+        known.push(c);
+        const email = dir === 'out' ? null : (p.address || customer.address);
+        out.push({
+          id: `h${m.uid}-${i}`, direction: dir, reconstructed: true, dateUnknown: !t,
+          name: dir === 'out' ? config.FROM_NAME : (p.name || (email === customer.address ? customer.name : '') || email),
+          email, author: null, authorKey: null,
+          date: new Date(t || base - (i + 1) * 1000).toISOString(),
+          body: p.body, quoted: null, attachments: [],
+        });
+      });
+    }
+    return out;
   }
 
   summary(t) {
