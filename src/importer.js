@@ -3,6 +3,7 @@
 // עם נושא כמו "ייבוא: טופל" או "ייבוא: אסמכתאות". המערכת מפרקת את המייל ושומרת כל הודעה
 // מצורפת כפניה נפרדת – עם השולח, התאריך והקבצים המקוריים – ומסווגת לפי מה שכתוב בנושא.
 const config = require('./config');
+const { categorize } = require('./categorize');
 
 const LABEL_BOX = 'KOH/import';        // כל ההודעות המיובאות (נוח לאיתור/ביטול)
 const DONE_LABEL = 'KOH/imported';     // סימון על מייל הבקשה – כדי שלא ייובא פעמיים
@@ -22,7 +23,7 @@ function classify(words) {
   const res = { done: false, cats: [], unknown: [], labelText: [] };
   for (const w of words) {
     const n = norm(w);
-    if (/^(לא טופל|לא טופלו|פתוח|פתוחות|פתוחים|חדש|חדשות|open|new)$/.test(n)) { res.labelText.push('פתוחות'); continue; }
+    if (/^(לא טופל|לא טופלו|לא הושלמו|לא הושלם|פתוח|פתוחות|פתוחים|חדש|חדשות|open|new)$/.test(n)) { res.labelText.push('פתוחות'); continue; }
     if (/^(טופל|טופלו|טופלה|מטופל|מטופלות|מטופלים|סגור|סגורות|done|handled)$/.test(n)) { res.done = true; res.labelText.push('טופל'); continue; }
     const cat = config.CATEGORIES.find(c => [c.name, c.key, ...(c.aliases || [])].some(a => {
       const na = norm(a);
@@ -113,6 +114,19 @@ function markRaw(raw, reqId) {
 }
 
 const keyOf = r => r.messageId || `${r.date}|${r.from.address}|${r.subject}`;
+const baseSubj = s => norm(String(s || '').replace(/^(\s*(re|fw|fwd|השב|הועבר|תשובה)\s*:\s*)+/i, ''));
+
+// חיפוש ההודעה במערכת: קודם לפי Message-ID, ואם אין התאמה – לפי שולח + נושא + זמן שליחה (עד 10 דקות הפרש),
+// למקרה שההעברה האוטומטית מאאוטלוק שינתה את ה-Message-ID
+function findExisting(provider, r) {
+  const all = [...provider.messages.values()].filter(m => !m.system);
+  if (r.messageId) {
+    const same = all.filter(m => m.messageId === r.messageId);
+    if (same.length) return same;
+  }
+  const subj = baseSubj(r.subject), t = Date.parse(r.date);
+  return all.filter(m => m.from.address === r.from.address && baseSubj(m.subject) === subj && Math.abs(Date.parse(m.date) - t) < 10 * 60e3);
+}
 
 // הרצת ייבוא אחד. provider צריך: messages, getRaw, appendRaw(raw, box, date), sync(), modifyLabels, status
 async function runImport(provider, rec, { checkAuth = true } = {}) {
@@ -124,8 +138,8 @@ async function runImport(provider, rec, { checkAuth = true } = {}) {
 
   const cls = classify(importSubject(rec.subject).words);
   report.labels = cls.labelText; report.unknown = cls.unknown;
-  const existing = new Set([...provider.messages.values()].filter(m => !m.system).map(keyOf));
   const addedKeys = [];
+  const dupUids = [];
 
   const parts = extractMessages(raw);
   if (!parts.length) { report.error = 'לא נמצאו הודעות מצורפות במייל. באאוטלוק: מסמנים כמה הודעות ולוחצים "העבר", כדי שיצורפו כקבצים.'; await provider.modifyLabels([rec.uid], [DONE_LABEL], []); return report; }
@@ -133,8 +147,9 @@ async function runImport(provider, rec, { checkAuth = true } = {}) {
     try {
       const r = await parseRaw(part.raw, {});
       const k = keyOf(r);
-      if (existing.has(k)) { report.dup++; continue; }
-      existing.add(k);
+      // ההודעה כבר קיימת – לא יוצרים עותק, רק מוסיפים לה את הסיווג החדש (אותה פניה)
+      const found = findExisting(provider, r);
+      if (found.length || addedKeys.includes(k)) { report.dup++; dupUids.push(...found.map(m => m.uid)); continue; }
       await provider.appendRaw(markRaw(part.raw, rec.uid), LABEL_BOX, new Date(r.date));
       addedKeys.push(k);
       report.added++;
@@ -145,7 +160,8 @@ async function runImport(provider, rec, { checkAuth = true } = {}) {
   }
 
   // סיווג ההודעות שנוספו (תוויות "טופל" / קטגוריות)
-  const add = [...(cls.done ? ['KOH/done'] : []), ...cls.cats.map(k => `KOH/cat/${k}`)];
+  const catLabels = cls.cats.map(k => `KOH/cat/${k}`);
+  const add = [...(cls.done ? ['KOH/done'] : []), ...catLabels];
   await provider.sync();
   await provider.sync();   // סנכרון נוסף – למקרה שהראשון כבר רץ לפני שההודעות נשמרו
   if (add.length && addedKeys.length) {
@@ -153,6 +169,21 @@ async function runImport(provider, rec, { checkAuth = true } = {}) {
     const uids = [...provider.messages.values()].filter(m => m.imported && want.has(keyOf(m))).map(m => m.uid);
     if (uids.length) await provider.modifyLabels(uids, add, []);
   }
+
+  // הודעות שכבר היו במערכת: מוסיפים את הקטגוריה החדשה בלי למחוק את הקיימות.
+  // "טופל" לא מוחל על פניה שמישהו מהצוות לקח לטיפול כרגע.
+  for (const uid of new Set(dupUids)) {
+    const m = provider.messages.get(uid);
+    if (!m) continue;
+    const labels = [...catLabels];
+    if (catLabels.length && ![...m.labels].some(l => l.startsWith('KOH/cat/'))) {
+      labels.push(...categorize(`${m.subject} ${m.body || ''}`).filter(k => k !== 'general').map(k => `KOH/cat/${k}`));
+    }
+    if (cls.done && ![...m.labels].some(l => l.startsWith('KOH/by/'))) labels.push('KOH/done');
+    const missing = [...new Set(labels)].filter(l => !m.labels.has(l));
+    if (missing.length) await provider.modifyLabels([uid], missing, []);
+  }
+  if (dupUids.length) provider.emit('change');
   await provider.modifyLabels([rec.uid], [DONE_LABEL], []);
   return report;
 }
