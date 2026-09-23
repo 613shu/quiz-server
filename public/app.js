@@ -136,7 +136,7 @@ function renderTop() {
   const st = S.status || {};
   let dot = 'dot', txt;
   if (st.error && !st.connected) { dot = 'dot bad'; txt = 'לא מחובר לתיבת המייל'; }
-  else if (st.loading && st.loading.total) { b.hidden = false; b.className = 'banner info'; b.textContent = `⏳ טוען מיילים מהתיבה: ${st.loading.done} מתוך ${st.loading.total}…`; }
+  else if (st.loading && st.loading.total) { dot = 'dot wait'; txt = `טוען מיילים: ${st.loading.done} מתוך ${st.loading.total}…`; }
   else if (!st.ready) { dot = 'dot wait'; txt = 'טוען מיילים מהתיבה…'; }
   else { txt = `מחובר ל-${S.cfg.inbox} · עודכן ${st.lastSync ? ago(st.lastSync) : ''}`; }
   $('#sync').innerHTML = `<span class="${dot}"></span><span>${esc(txt)}</span>`;
@@ -548,7 +548,7 @@ async function startApp() {
   $('#mgr-addr').textContent = S.cfg.manager;
   if (!started) { bindApp(); started = true; }
   renderDetail();
-  await loadList();
+  loadList().catch(err => toast(err.message, 'err'));
   setInterval(async () => {
     if (document.hidden || document.querySelector('dialog[open]') || $('#app').hidden) return;
     await loadList().catch(() => {});
