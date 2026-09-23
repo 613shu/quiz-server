@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ניהול פניות – קרן עולם התורה</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -40,6 +40,7 @@
           <div class="brand-sub">קרן עולם התורה</div>
         </div>
       </div>
+      <section class="stats" id="stats"></section>
       <div class="sync" id="sync"></div>
       <div class="me">
         <span class="avatar sm" id="me-avatar"></span>
@@ -50,14 +51,16 @@
 
     <div class="banner" id="banner" hidden></div>
 
-    <section class="stats" id="stats"></section>
-
     <main class="layout" id="layout">
-      <aside class="list-pane">
+      <aside class="side-pane">
+        <div class="side-h">תצוגה</div>
         <nav class="tabs" id="tabs"></nav>
+        <div class="side-h">קטגוריות</div>
+        <div class="chips" id="chips"></div>
+      </aside>
+      <aside class="list-pane">
         <div class="filters">
           <div class="search-wrap"><span>🔍</span><input type="search" id="search" placeholder="חיפוש שם, מייל או תוכן"></div>
-          <div class="chips" id="chips"></div>
         </div>
         <ul class="inq-list" id="list"></ul>
       </aside>
