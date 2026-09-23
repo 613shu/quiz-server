@@ -1,3 +1,4 @@
+
 // הגדרות המערכת – הכול דרך משתני סביבה (ב-Render: Environment).
 const env = process.env;
 
@@ -42,6 +43,9 @@ module.exports = {
   // ייבוא הודעות קיימות מאאוטלוק: רק מיילים מהכתובות האלה עם נושא "ייבוא: ..." מיובאים
   IMPORT_SENDERS: (env.IMPORT_SENDERS || 'help@koh.org.il').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
   IMPORT_REQUIRE_AUTH: env.IMPORT_REQUIRE_AUTH !== '0',   // בדיקת DKIM/DMARC שהמייל באמת הגיע מהכתובת
+
+  // דומיינים של הארגון – בהיסטוריה המצוטטת, הודעה מכתובת בדומיין הזה מוצגת כתשובת צוות
+  TEAM_DOMAINS: (env.TEAM_DOMAINS || 'koh.org.il,kerenolamhatorah.org').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
 
   MANAGER_EMAIL: env.MANAGER_EMAIL || 'israel@kerenolamhatorah.org',
   TEAM: parseTeam(env.TEAM_USERS),
