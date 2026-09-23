@@ -2,23 +2,38 @@
 const { simpleParser } = require('mailparser');
 
 // מפריד בין הטקסט החדש לבין ההודעה המצוטטת (תשובה על מייל קודם)
+// (בלי \s שחוצה שורות ובלי חזרות מקוננות – כדי שמייל ארוך לא יקפיא את השרת)
 const QUOTE_MARKERS = [
-  /^\s*(בתאריך|ב-?\s?\d).{0,120}(מאת|כתב\/ה|כתבה|כתב|<[^>]+@[^>]+>)\s*:?\s*$/m,
-  /^\s*On .{0,200}wrote:\s*$/m,
-  /^\s*-{2,}\s*(Original Message|הודעה מקורית|Forwarded message|הודעה שהועברה)\s*-{2,}/mi,
-  /^\s*(From|מאת)\s*:\s*.+\n\s*(Sent|Date|נשלח|תאריך)\s*:/mi,
-  /^_{10,}\s*$/m,
+  /^[ \t]*(בתאריך|ב-?[ \t]?\d).{0,120}(מאת|כתב\/ה|כתבה|כתב|<[^>\n]{1,200}@[^>\n]{1,200}>)[ \t]*:?[ \t]*$/m,
+  /^[ \t]*On .{0,200}wrote:[ \t]*$/m,
+  /^[ \t]*-{2,}[ \t]*(Original Message|הודעה מקורית|Forwarded message|הודעה שהועברה)[ \t]*-{2,}/mi,
+  /^[ \t]*(From|מאת)[ \t]*:[^\n]+\n[ \t]*(Sent|Date|נשלח|תאריך)[ \t]*:/mi,
+  /^_{10,}[ \t]*$/m,
 ];
 
+// מיקום ה-\n שלפני גוש השורות המצוטטות (>) שבסוף הטקסט, או -1
+function trailingQuoteIndex(text) {
+  const lines = text.split('\n');
+  let i = lines.length;
+  while (i > 0 && !lines[i - 1].trim()) i--;
+  let j = i;
+  while (j > 0 && lines[j - 1].startsWith('>')) j--;
+  if (j === i) return -1;
+  if (j === 0) return i >= 2 ? lines[0].length : -1;   // הכול מצוטט – כמו ההתנהגות הקודמת
+  let pos = -1;
+  for (let k = 0; k < j; k++) pos += lines[k].length + 1;
+  return pos;
+}
+
 function splitQuoted(text) {
-  text = (text || '').replace(/\r\n/g, '\n').replace(/‏|‎|‫|‬|‪/g, '');
+  text = (text || '').replace(/\r\n/g, '\n').replace(/[\u200e\u200f\u202a\u202b\u202c]/g, '');
   let cut = -1;
   for (const re of QUOTE_MARKERS) {
     const m = re.exec(text);
     if (m && (cut < 0 || m.index < cut)) cut = m.index;
   }
-  // שורות שמתחילות ב-> ברצף עד הסוף
-  const gt = text.search(/\n(>.*\n?)+\s*$/);
+  // שורות שמתחילות ב-> ברצף עד הסוף (סריקת שורות – ביטוי רגולרי כאן נתקע על מיילים מסוימים ומקפיא את השרת)
+  const gt = trailingQuoteIndex(text);
   if (gt >= 0 && (cut < 0 || gt < cut)) cut = gt;
   if (cut <= 0) return { body: text.trim(), quoted: null };
   const body = text.slice(0, cut).trim();
@@ -29,9 +44,15 @@ function splitQuoted(text) {
 
 // אם מייל הועבר ידנית (Fwd) מכתובת מעבירה – חילוץ הפונה המקורי מתוך הגוף
 function extractForwardedSender(text) {
-  const m = /(?:^|\n)\s*(?:From|מאת)\s*:\s*(?:"?([^"<\n]*?)"?\s*)?<?([\w.+-]+@[\w.-]+\.\w+)>?/i.exec(text || '');
-  if (!m) return null;
-  return { name: (m[1] || '').trim() || m[2], address: m[2].toLowerCase() };
+  // שורת From/מאת הראשונה, ואז חילוץ הכתובת מתוכה (בשלבים – בלי ביטוי רגולרי שיכול להיתקע)
+  const line = /^[ \t]*(?:From|מאת)[ \t]*:([^\n]*)/im.exec(text || '');
+  if (!line) return null;
+  const rest = line[1].slice(0, 400);
+  const em = /[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,6}/.exec(rest);
+  if (!em) return null;
+  const name = rest.slice(0, em.index).replace(/[<"\s]+$/, '').replace(/^[\s"]+/, '').trim();
+  if (/[<"]/.test(name)) return null;
+  return { name: name || em[0], address: em[0].toLowerCase() };
 }
 
 const addr = a => (a && a.value && a.value[0]) ? { name: a.value[0].name || a.value[0].address, address: (a.value[0].address || '').toLowerCase() } : { name: '', address: '' };
