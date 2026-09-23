@@ -5,7 +5,7 @@ const { categorize } = require('./categorize');
 const { extractForwardedSender, extractAttachment, allAttachments } = require('./mail/parse');
 
 const L = {
-  done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened',
+  done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup',
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
 };
 
@@ -222,8 +222,12 @@ class Engine {
       const t = this.get(id);
       if (t.status === 'escalated') throw new AppError(409, 'הפניה הועברה למנהל');
       if (t.status === 'in_progress' && t.assignee !== user.key) throw new AppError(409, `הפניה כבר בטיפול של ${this.userName(t.assignee)}`);
+      // פניה שכבר טופלה (למשל נזכרנו להוסיף משהו ללקוח): פותחים אותה זמנית לתגובה נוספת.
+      // אם משחררים בלי לענות – היא חוזרת ל"טופלה".
+      const followup = t.status === 'handled';
       await this.p.modifyLabels(t.uids, [L.by(user.key)], this.byLabels().filter(l => l !== L.by(user.key)).concat(L.done, L.ignore));
-      this.addLog(id, user, 'take', 'לקח/ה לטיפול');
+      if (followup) await this.p.modifyLabels([t.lastUid], [L.reopen, L.followup], []);
+      this.addLog(id, user, 'take', followup ? 'לקח/ה לטיפול פניה שכבר טופלה (תגובה נוספת)' : 'לקח/ה לטיפול');
       return this.refresh(id);
     });
   }
@@ -233,6 +237,11 @@ class Engine {
       const t = this.get(id);
       if (t.assignee !== user.key) throw new AppError(403, 'רק מי שלקח את הפניה יכול לשחרר אותה');
       await this.p.modifyLabels(t.uids, [], this.byLabels());
+      const last = t.raw[t.raw.length - 1];
+      if (last && last.labels.has(L.followup)) {
+        // נפתחה רק לתגובה נוספת ולא נשלח כלום – חוזרת ל"טופלה"
+        await this.p.modifyLabels([t.lastUid], this.isOut(last) ? [] : [L.done], [L.reopen, L.followup]);
+      }
       this.addLog(id, user, 'release', 'שחרר/ה את הפניה');
       return this.refresh(id);
     });
@@ -242,7 +251,7 @@ class Engine {
     return this.locked(id, async () => {
       const t = this.get(id);
       if (t.status === 'in_progress' && t.assignee !== user.key) throw new AppError(409, `הפניה בטיפול של ${this.userName(t.assignee)}`);
-      await this.p.modifyLabels([t.lastUid], [L.done], [L.reopen]);
+      await this.p.modifyLabels([t.lastUid], [L.done], [L.reopen, L.followup]);
       await this.p.modifyLabels(t.uids, [], this.byLabels());
       this.addLog(id, user, 'handled', 'סימן/ה כטופל');
       return this.refresh(id);
@@ -252,7 +261,7 @@ class Engine {
   reopen(id, user) {
     return this.locked(id, async () => {
       const t = this.get(id);
-      await this.p.modifyLabels(t.uids, [], [L.done, L.esc, L.ignore, ...this.byLabels()]);
+      await this.p.modifyLabels(t.uids, [], [L.done, L.esc, L.ignore, L.followup, ...this.byLabels()]);
       if (t.raw.length && this.isOut(t.raw[t.raw.length - 1])) await this.p.modifyLabels([t.lastUid], [L.reopen, L.keep]);
       else await this.p.modifyLabels([t.lastUid], [L.keep]);
       this.addLog(id, user, 'reopen', 'החזיר/ה לפניות הפתוחות');
@@ -314,7 +323,7 @@ class Engine {
       });
       this.pending.set(id, pend);
       // המייל כבר נשלח – גם אם עדכון התוויות נכשל, לא מחזירים שגיאה (אחרת ישלחו שוב)
-      await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.reopen]).catch(e => console.error('[reply] labels', e.message));
+      await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.reopen, L.followup]).catch(e => console.error('[reply] labels', e.message));
       this.addLog(id, user, 'reply', `השיב/ה ל-${t.replyTarget.address}`);
       return this.refresh(id);
     });

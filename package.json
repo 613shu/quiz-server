@@ -4,7 +4,7 @@
   "description": "דשבורד ניהול פניות – קרן עולם התורה",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --max-old-space-size=384 server.js"
   },
   "author": "",
   "license": "ISC",

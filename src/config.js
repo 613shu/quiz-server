@@ -16,7 +16,7 @@ const CATEGORIES = [
   { key: 'receipt',   name: 'לא קיבלתי קבלה',     color: '#f59e0b' },
   { key: 'standing',  name: 'הו"ק בנקאית',        color: '#0ea5e9' },
   { key: 'double',    name: 'חיוב כפול / החזר',   color: '#ef4444' },
-  { key: 'cancel',    name: 'ביטול / שינוי תרומה', color: '#f97316' },
+  { key: 'cancel',    name: 'ביטול / שינוי תרומה', color: '#f97316', aliases: ['ביטולים', 'ביטול', 'שינויים'] },
   { key: 'ambassador',name: 'שגרירות',            color: '#ec4899' },
   { key: 'proof',     name: 'אסמכתאות',           color: '#10b981', aliases: ['אסמכתא', 'אסמכתה', 'אסמכתאות', 'אסמכתות'] },
   { key: 'general',   name: 'כללי',               color: '#64748b' },

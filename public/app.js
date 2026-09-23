@@ -136,12 +136,14 @@ function renderTop() {
   const st = S.status || {};
   let dot = 'dot', txt;
   if (st.error && !st.connected) { dot = 'dot bad'; txt = 'לא מחובר לתיבת המייל'; }
+  else if (st.loading && st.loading.total) { b.hidden = false; b.className = 'banner info'; b.textContent = `⏳ טוען מיילים מהתיבה: ${st.loading.done} מתוך ${st.loading.total}…`; }
   else if (!st.ready) { dot = 'dot wait'; txt = 'טוען מיילים מהתיבה…'; }
   else { txt = `מחובר ל-${S.cfg.inbox} · עודכן ${st.lastSync ? ago(st.lastSync) : ''}`; }
   $('#sync').innerHTML = `<span class="${dot}"></span><span>${esc(txt)}</span>`;
   const b = $('#banner');
   if (st.error) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ ' + st.error; }
   else if (st.send && st.send.ok === false) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ שליחת מיילים לא זמינה כרגע – אפשר לקרוא פניות, אבל תשובות לא יישלחו. ' + (st.send.error || ''); }
+  else if (st.loading && st.loading.total) { b.hidden = false; b.className = 'banner info'; b.textContent = `⏳ טוען מיילים מהתיבה: ${st.loading.done} מתוך ${st.loading.total}…`; }
   else if (!st.ready) { b.hidden = false; b.className = 'banner info'; b.textContent = '⏳ המערכת טוענת את כל המיילים מהתיבה. זה לוקח רגע בהפעלה הראשונה.'; }
   else if (recentImports(st).length) {
     const list = recentImports(st);
@@ -268,7 +270,10 @@ function renderDetail() {
     <button class="btn green" data-act="handled">✓ סמן כטופל</button>
     <button class="btn violet" data-act="escalate">↗ העבר למנהל</button>
     <button class="btn ghost sm" data-act="release">↩ שחרר</button>`;
-  else if (['handled', 'escalated', 'ignored'].includes(d.status)) actions = `<button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
+  else if (d.status === 'handled') actions = `
+    <button class="btn primary" data-act="take" title="למשל: נזכרתם להוסיף משהו ללקוח">🙋 אני מטפל/ת בזה (תגובה נוספת)</button>
+    <button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
+  else if (['escalated', 'ignored'].includes(d.status)) actions = `<button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
 
   let owner = '';
   if (d.status === 'in_progress') owner = `<span class="owner">${avatar(d.assigneeName, teamColor(d.assignee), 'sm team')} ${mine ? 'בטיפול שלך' : `בטיפול של <b>${esc(d.assigneeName)}</b>`}</span>`;

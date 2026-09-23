@@ -85,7 +85,7 @@ class GmailProvider extends EventEmitter {
       this.trash = (find('\\Trash') || {}).path;
       if (!this.allMail) throw new Error('לא נמצאה תיקיית "כל הדואר" – ודאו ש-IMAP מופעל בג׳ימייל');
       // יצירת התוויות שהמערכת משתמשת בהן (אם עוד לא קיימות)
-      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', importer.LABEL_BOX, importer.DONE_LABEL,
+      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', 'KOH/followup', importer.LABEL_BOX, importer.DONE_LABEL,
         ...config.TEAM.map(u => `KOH/by/${u.key}`), ...config.CATEGORIES.map(c => `KOH/cat/${c.key}`)];
       for (const path of needed) if (!boxes.some(b => b.path === path)) await client.mailboxCreate(path).catch(() => {});
 
@@ -99,6 +99,8 @@ class GmailProvider extends EventEmitter {
       await this.sync(true);
       if (!this.status.ready) { this.status.ready = true; this.emit('ready'); }
       console.log(`[gmail] מחובר ל-${config.GMAIL_USER}, ${this.messages.size} הודעות`);
+      // בקשות ייבוא שלא הושלמו (למשל כי החיבור נפל באמצע) – ממשיכים אותן
+      setImmediate(() => importer.processImports(this).catch(e => this.fail(e)));
     } catch (e) {
       this.fail(e);
       this.status.connected = false;
@@ -126,21 +128,44 @@ class GmailProvider extends EventEmitter {
       return;
     }
 
-    // 1. הודעות חדשות
+    // 1. הודעות חדשות – קודם רק פרטים קטנים (uid, גודל, תוויות), ואחר כך התוכן במנות,
+    //    כדי שתיבה גדולה (או מיילי ייבוא ענקיים) לא יחרגו מהזיכרון של השרת
+    const metas = [];
+    for await (const m of c.fetch(`${this.maxUid + 1}:*`, { uid: true, labels: true, size: true }, { uid: true })) {
+      if (m.uid > this.maxUid) metas.push({ uid: m.uid, size: m.size || 0, labels: new Set(m.labels || []) });
+    }
+    // מיילי בקשת ייבוא שכבר עובדו – לא צריך להוריד אותם שוב (הם מוסתרים ממילא, ולרוב ענקיים)
+    const want = metas.filter(m => !m.labels.has(importer.DONE_LABEL));
     const fresh = [];
-    for await (const m of c.fetch(`${this.maxUid + 1}:*`, { uid: true, labels: true, threadId: true, internalDate: true, source: true }, { uid: true })) {
-      if (m.uid > this.maxUid) fresh.push(m);
+    if (want.length > 40) this.status.loading = { done: 0, total: want.length };
+    let done = 0;
+    while (want.length) {
+      const batch = [];
+      let bytes = 0;
+      while (want.length && batch.length < 40 && (!batch.length || bytes + want[0].size <= 25 * 1024 * 1024)) {
+        bytes += want[0].size; batch.push(want.shift().uid);
+      }
+      const got = [];
+      for await (const m of c.fetch(batch.join(','), { uid: true, labels: true, threadId: true, internalDate: true, source: true }, { uid: true })) got.push(m);
+      for (const m of got) {
+        try {
+          const rec = await parseRaw(m.source, { uid: m.uid, threadId: m.threadId, labels: m.labels, internalDate: m.internalDate });
+          if (!rec.system && importer.isImportRequest(rec)) rec.system = 'import-request';
+          if (!rec.system && !config.FORWARDERS.includes(rec.from.address)) delete rec.fullText;
+          this.messages.set(m.uid, rec);
+          fresh.push(m.uid);
+          changed = true;
+        } catch (e) { console.error('[gmail] parse', m.uid, e.message); }
+        m.source = null;
+      }
+      done += batch.length;
+      if (this.status.loading) {
+        this.status.loading = { done, total: this.status.loading.total };
+        console.log(`[gmail] נטענו ${done}/${this.status.loading.total}`);
+      }
     }
-    for (const m of fresh) {
-      try {
-        const rec = await parseRaw(m.source, { uid: m.uid, threadId: m.threadId, labels: m.labels, internalDate: m.internalDate });
-        if (!rec.system && importer.isImportRequest(rec)) rec.system = 'import-request';
-        if (!rec.system && !config.FORWARDERS.includes(rec.from.address)) delete rec.fullText;
-        this.messages.set(m.uid, rec);
-        changed = true;
-      } catch (e) { console.error('[gmail] parse', m.uid, e.message); }
-      this.maxUid = Math.max(this.maxUid, m.uid);
-    }
+    this.status.loading = null;
+    for (const m of metas) this.maxUid = Math.max(this.maxUid, m.uid);
 
     // 2. רענון תוויות + זיהוי הודעות שנמחקו/הועברו לספאם
     const seen = new Set();
@@ -200,8 +225,10 @@ class GmailProvider extends EventEmitter {
   }
 
   async getRaw(uid) {
+    if (!this.client || !this.status.connected) throw new Error('אין כרגע חיבור לג׳ימייל');
     const m = await this.client.fetchOne(String(uid), { source: true }, { uid: true });
-    return m && m.source;
+    if (!m || !m.source) throw new Error('לא הצלחתי להוריד את המייל מג׳ימייל (ייתכן שהחיבור התנתק)');
+    return m.source;
   }
 
   // אחסון קטן ועמיד (יומן פעולות) – הודעה בתווית KOH-System
