@@ -17,4 +17,14 @@ function categorize(text) {
   return found.length ? found.slice(0, 2) : ['general'];
 }
 
-module.exports = { categorize };
+// פניה באנגלית: בהודעות הלקוח (בלי ציטוט/חתימה) יש מספיק אותיות לטיניות וכמעט אין עברית
+function isEnglish(texts) {
+  let he = 0, en = 0;
+  for (const t of texts) for (const ch of String(t || '')) {
+    if (ch >= '\u05d0' && ch <= '\u05ea') he++;
+    else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) en++;
+  }
+  return en >= 15 && he <= en * 0.1;
+}
+
+module.exports = { categorize, isEnglish };
