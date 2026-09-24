@@ -1,4 +1,3 @@
-
 // הגדרות המערכת – הכול דרך משתני סביבה (ב-Render: Environment).
 const env = process.env;
 
@@ -20,6 +19,7 @@ const CATEGORIES = [
   { key: 'cancel',    name: 'ביטול / שינוי תרומה', color: '#f97316', aliases: ['ביטולים', 'ביטול', 'שינויים'] },
   { key: 'ambassador',name: 'שגרירות',            color: '#ec4899' },
   { key: 'proof',     name: 'אסמכתאות',           color: '#10b981', aliases: ['אסמכתא', 'אסמכתה', 'אסמכתאות', 'אסמכתות'] },
+  { key: 'english',   name: 'אנגלית',             color: '#0f766e', aliases: ['english', 'אנגלית'] },
   { key: 'general',   name: 'כללי',               color: '#64748b' },
 ];
 
