@@ -232,15 +232,35 @@ function bubble(m, first) {
           <span class="b-time">${m.dateUnknown ? '' : hm(m.date)}</span>
         </div>
         ${!out && m.email && m.email !== m.name ? `<div class="b-email">${esc(m.email)}</div>` : ''}
-        <div class="b-body">${esc(m.body) || '<span class="b-empty">(הודעה ללא טקסט)</span>'}</div>
+        <div class="b-body">${esc(bodyText(m)) || '<span class="b-empty">(הודעה ללא טקסט)</span>'}</div>
         ${m.reconstructed ? '<div class="b-recon" title="ההודעה הזו לא יובאה בנפרד – היא שוחזרה מתוך ההיסטוריה שמצוטטת בהודעה מאוחרת יותר">↩ מתוך ההתכתבות המצוטטת</div>' : ''}
         ${showQuoted ? `<button class="q-toggle" data-q="${m.id}">הצג היסטוריה קודמת</button><div class="quoted" id="q-${m.id}" hidden>${esc(m.quoted)}</div>` : ''}
-        ${m.attachments.length ? `<div class="atts">${m.attachments.map(a => a.id
-          ? `<a class="att" href="/api/attachments/${encodeURIComponent(a.id)}">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a>`
-          : `<span class="att">📎 ${esc(a.name)}</span>`).join('')}</div>` : ''}
+        ${m.attachments.length ? attList(m.attachments) : ''}
         ${String(m.id).startsWith('pending') ? '<div class="sending">✓ נשלח ללקוח</div>' : ''}
       </div>
     </div>`;
+}
+
+// קבצים מצורפים: תמונות מוצגות כתמונה ממוזערת, PDF/טקסט נפתחים בלשונית חדשה – בלי להוריד. ⬇ = הורדה.
+const IMG_RE = /^image\/(png|jpe?g|gif|webp|bmp)$/i;
+const VIEW_RE = /^(image\/(png|jpe?g|gif|webp|bmp)|application\/pdf|text\/plain)$/i;
+function attList(atts) {
+  const imgs = atts.filter(a => a.id && IMG_RE.test(a.type || ''));
+  const files = atts.filter(a => !imgs.includes(a));
+  const url = a => `/api/attachments/${encodeURIComponent(a.id)}`;
+  return `<div class="atts">
+    ${imgs.map(a => `<a class="att-img" href="${url(a)}?view=1" target="_blank" rel="noopener" title="${esc(a.name)} – לחצו לפתיחה בגודל מלא">
+      <img src="${url(a)}?view=1" alt="${esc(a.name)}" loading="lazy"></a>`).join('')}
+    ${files.map(a => !a.id ? `<span class="att">📎 ${esc(a.name)}</span>`
+      : VIEW_RE.test(a.type || '')
+        ? `<span class="att"><a href="${url(a)}?view=1" target="_blank" rel="noopener">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a><a class="att-dl" href="${url(a)}" title="הורדה">⬇</a></span>`
+        : `<a class="att" href="${url(a)}">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a>`).join('')}
+  </div>`;
+}
+// ג'ימייל כותב "[image: image.png]" בגרסת הטקסט של תמונה מודבקת – מיותר כשהתמונה עצמה מוצגת
+function bodyText(m) {
+  if (!m.body || !m.attachments.some(a => a.id && IMG_RE.test(a.type || ''))) return m.body;
+  return m.body.replace(/^[ \t]*\[image:[^\]\n]{0,200}\][ \t]*\n?/gim, '').trim();
 }
 
 function timeline(d) {
