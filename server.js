@@ -121,8 +121,15 @@ app.post('/api/inquiries/:id/reply', uploadFiles, h(req => {
 app.get('/api/attachments/:id', async (req, res) => {
   try {
     const a = await engine.attachment(req.params.id);
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.name)}`);
-    res.type(a.type || 'application/octet-stream').send(a.content);
+    // ?view=1 – פתיחה בדפדפן בלי הורדה. רק סוגים בטוחים (תמונות, PDF, טקסט); השאר תמיד כהורדה.
+    const type = String(a.type || 'application/octet-stream').toLowerCase();
+    const viewable = /^(image\/(png|jpe?g|gif|webp|bmp)|application\/pdf|text\/plain)$/.test(type);
+    const mode = req.query.view && viewable ? 'inline' : 'attachment';
+    res.setHeader('Content-Disposition', `${mode}; filename*=UTF-8''${encodeURIComponent(a.name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (type !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'");
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.type(type === 'text/plain' ? 'text/plain; charset=utf-8' : type).send(a.content);
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
