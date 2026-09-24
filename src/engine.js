@@ -185,7 +185,7 @@ class Engine {
       author: this.isOut(m) ? (m.author ? this.userName(m.author) : null) : null,
       authorKey: this.isOut(m) ? m.author || null : null,
       date: m.date, body: m.body, quoted: m.quoted,
-      attachments: m.attachments.map(a => ({ id: `${m.uid}-${a.index}`, name: a.name, type: a.type, size: a.size })),
+      attachments: m.attachments.map(a => ({ id: `${m.uid}-${a.index}`, name: a.name, type: a.type, size: a.size, inline: a.inline })),
     });
 
     // ההתכתבות המלאה: הודעות שלא נמצאות בתיבה (לא יובאו) משוחזרות מתוך הציטוט של ההודעות שכן קיימות
