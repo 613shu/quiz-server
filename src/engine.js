@@ -1,12 +1,12 @@
 // לב המערכת: בונה "פניות" משרשורי המייל, מחשב סטטוס, ומבצע פעולות צוות.
 // מצב כל פניה נשמר כתוויות בג׳ימייל (KOH/...), ולכן שורד הפעלה מחדש של השרת.
 const config = require('./config');
-const { categorize } = require('./categorize');
+const { categorize, isEnglish } = require('./categorize');
 const { extractForwardedSender, extractAttachment, allAttachments } = require('./mail/parse');
 const { splitHistory, bodyKey } = require('./mail/history');
 
 const L = {
-  done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup',
+  done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', notEnglish: 'KOH/not-english',
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
 };
 
@@ -176,7 +176,11 @@ class Engine {
     const returned = status === 'new' && hadReply && !this.isOut(last);
 
     const manualCats = [...labels].filter(l => l.startsWith('KOH/cat/')).map(l => l.slice(8)).filter(k => this.catKeys.has(k));
-    const categories = manualCats.length ? manualCats : categorize(first.subject + ' ' + incoming.map(m => m.body).join(' '));
+    let categories = manualCats.length ? manualCats : categorize(first.subject + ' ' + incoming.map(m => m.body).join(' '));
+    // "אנגלית" – מזוהה אוטומטית גם כשיש קטגוריות ידניות (אלא אם מישהו הוריד אותה ידנית)
+    if (!categories.includes('english') && !labels.has(L.notEnglish) && isEnglish(incoming.map(m => m.body))) {
+      categories = [...categories.filter(k => k !== 'general'), 'english'];
+    }
 
     const view = m => ({
       id: m.uid, direction: this.isOut(m) ? 'out' : 'in',
@@ -389,6 +393,9 @@ class Engine {
       const all = config.CATEGORIES.map(c => L.cat(c.key));
       await this.p.modifyLabels(t.uids, [], all.filter(l => !cats.map(L.cat).includes(l)));
       await this.p.modifyLabels(t.uids, cats.map(L.cat), []);
+      // הורדה ידנית של "אנגלית" נזכרת, כדי שהזיהוי האוטומטי לא יחזיר אותה
+      if (cats.includes('english')) await this.p.modifyLabels(t.uids, [], [L.notEnglish]);
+      else if (t.categories.includes('english')) await this.p.modifyLabels(t.uids, [L.notEnglish], []);
       const names = cats.map(k => config.CATEGORIES.find(c => c.key === k).name).join(', ');
       this.addLog(id, user, 'categories', `עדכן/ה קטגוריות: ${names}`);
       return this.refresh(id);
