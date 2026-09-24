@@ -71,6 +71,10 @@ function extractForwardedSender(text) {
 
 const addr = a => (a && a.value && a.value[0]) ? { name: a.value[0].name || a.value[0].address, address: (a.value[0].address || '').toLowerCase() } : { name: '', address: '' };
 
+// כל הקבצים – כולל תמונות שהודבקו בתוך גוף ההודעה (multipart/related עם cid).
+// בעבר סוננו החוצה, ולכן צילום מסך מודבק לא הופיע בכלל. מדלגים רק על לוגואים זעירים של חתימה.
+const fileParts = p => (p.attachments || []).filter(a => !(a.related && a.contentDisposition !== 'attachment' && (a.size || 0) < 4096));
+
 async function parseRaw(raw, meta = {}) {
   const p = await simpleParser(raw, { skipImageLinks: true, skipTextToHtml: true });
   let text = p.text || '';
@@ -95,15 +99,15 @@ async function parseRaw(raw, meta = {}) {
     author: h('x-koh-author'),
     system: h('x-koh-system'),
     imported: !!h('x-koh-import'),
-    attachments: (p.attachments || []).filter(a => !a.related || a.contentDisposition === 'attachment').map((a, i) => ({
-      index: i, name: a.filename || `קובץ-${i + 1}`, type: a.contentType, size: a.size,
+    attachments: fileParts(p).map((a, i) => ({
+      index: i, name: a.filename || `קובץ-${i + 1}`, type: a.contentType, size: a.size, inline: !!a.related,
     })),
   };
 }
 
 async function extractAttachment(raw, index) {
   const p = await simpleParser(raw);
-  const list = (p.attachments || []).filter(a => !a.related || a.contentDisposition === 'attachment');
+  const list = fileParts(p);
   const a = list[index];
   if (!a) return null;
   return { name: a.filename || `קובץ-${index + 1}`, type: a.contentType, content: a.content };
@@ -111,7 +115,7 @@ async function extractAttachment(raw, index) {
 
 async function allAttachments(raw) {
   const p = await simpleParser(raw);
-  return (p.attachments || []).filter(a => !a.related || a.contentDisposition === 'attachment')
+  return fileParts(p)
     .map(a => ({ filename: a.filename, contentType: a.contentType, content: a.content }));
 }
 
