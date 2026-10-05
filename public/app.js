@@ -198,7 +198,7 @@ function renderList() {
     el.innerHTML = `<li class="empty-list"><div class="big">${empty ? '🎉' : '🔍'}</div>${empty ? 'אין פניות פתוחות – כל הכבוד!' : 'לא נמצאו פניות'}</li>`;
     return;
   }
-  el.innerHTML = S.items.map(it => `
+  const html = S.items.map(it => `
     <li class="inq ${it.id === S.selId ? 'sel' : ''}" data-id="${esc(it.id)}" style="--s:${STATUS_COLOR[it.status]}">
       ${avatar(it.fromName, custColor(it.fromEmail))}
       <div class="inq-main">
@@ -214,6 +214,21 @@ function renderList() {
         </div>
       </div>
     </li>`).join('');
+  if (html === S._listHtml && el.children.length) return; // שום דבר לא השתנה – לא נוגעים ברשימה
+  S._listHtml = html;
+  // עוגן גלילה: הפריט הנבחר (אם גלוי) או הפריט העליון הגלוי נשאר בדיוק באותו מקום על המסך,
+  // גם כשהרשימה מתעדכנת ברקע (פניה חדשה למעלה, פניה שירדה וכו') – שום פניה לא "קופצת".
+  const top = el.getBoundingClientRect().top;
+  const visible = [...el.children].filter(li => li.dataset.id && li.getBoundingClientRect().bottom > top + 1);
+  const anchorLi = visible.find(li => li.dataset.id === S.selId && li.getBoundingClientRect().top >= top - 1) || visible[0];
+  const anchorId = anchorLi?.dataset.id;
+  const anchorOff = anchorLi ? anchorLi.getBoundingClientRect().top - top : 0;
+  const prevScroll = el.scrollTop;
+  el.innerHTML = html;
+  const again = anchorId && [...el.children].find(li => li.dataset.id === anchorId);
+  const pinned = prevScroll > 0 || (S.selId && anchorId === S.selId); // למעלה ובלי בחירה – פניות חדשות מופיעות כרגיל
+  if (again && pinned && el.offsetParent !== null) el.scrollTop += again.getBoundingClientRect().top - el.getBoundingClientRect().top - anchorOff;
+  else el.scrollTop = prevScroll;
 }
 
 function bubble(m, first) {
