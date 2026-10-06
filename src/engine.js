@@ -10,6 +10,14 @@ const L = {
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
 };
 
+// כתובת מייל תקינה אחת (לנמען שהוקלד ידנית)
+const EMAIL_RE = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/;
+// הודעת מערכת: שם השולח או הכתובת מכילים את אחד הערכים ב-SYSTEM_SENDERS
+const isSystemSender = p => {
+  const hay = `${(p && p.name) || ''} ${(p && p.address) || ''}`.toLowerCase();
+  return config.SYSTEM_SENDERS.some(s => hay.includes(s));
+};
+
 class AppError extends Error { constructor(status, message) { super(message); this.status = status; } }
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -179,9 +187,13 @@ class Engine {
     const returned = status === 'new' && hadReply && !this.isOut(last);
 
     const manualCats = [...labels].filter(l => l.startsWith('KOH/cat/')).map(l => l.slice(8)).filter(k => this.catKeys.has(k));
-    let categories = manualCats.length ? manualCats : categorize(first.subject + ' ' + incoming.map(m => m.body).join(' '));
+    // הודעות מערכת (Synchroline, MailAdmin, Charidy Support…) – ישר לקטגוריה "הודעות מערכת"
+    const fromSystem = isSystemSender(customer) || isSystemSender(first.from);
+    let categories = manualCats.length ? manualCats
+      : fromSystem ? ['system']
+      : categorize(first.subject + ' ' + incoming.map(m => m.body).join(' '));
     // "אנגלית" – מזוהה אוטומטית גם כשיש קטגוריות ידניות (אלא אם מישהו הוריד אותה ידנית)
-    if (!categories.includes('english') && !labels.has(L.notEnglish) && isEnglish(incoming.map(m => m.body))) {
+    if (!categories.includes('english') && !categories.includes('system') && !labels.has(L.notEnglish) && isEnglish(incoming.map(m => m.body))) {
       categories = [...categories.filter(k => k !== 'general'), 'english'];
     }
 
@@ -191,6 +203,7 @@ class Engine {
       email: this.isOut(m) ? null : senderOf(m).address,
       author: this.isOut(m) ? (m.author ? this.userName(m.author) : null) : null,
       authorKey: this.isOut(m) ? m.author || null : null,
+      to: this.isOut(m) ? ((m.to || []).find(a => a !== this.me) || null) : null,
       date: m.date, body: m.body, quoted: m.quoted,
       attachments: m.attachments.map(a => ({ id: `${m.uid}-${a.index}`, name: a.name, type: a.type, size: a.size, inline: a.inline })),
     });
@@ -272,6 +285,7 @@ class Engine {
     return {
       ...this.summary(t),
       messages: t.messages,
+      replyTo: t.replyTarget.address,
       events: this.log.filter(e => t.ids.includes(e.t)).map(e => ({ at: e.at, user: e.user ? this.userName(e.user) : null, userKey: e.user, action: e.action, text: e.text })),
     };
   }
@@ -406,10 +420,15 @@ class Engine {
   }
 
   // מענה ללקוח באותה שרשרת מייל
-  reply(id, user, body, files) {
+  // toAddress – רק אם המשתמש/ת שינה את הנמען; ריק = הפונה (שולח ההודעה האחרונה)
+  reply(id, user, body, files, toAddress) {
     return this.locked(id, async () => {
       const t = this.get(id);
       if (!['in_progress', 'escalated'].includes(t.status) || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "קח לטיפול"');
+      const custom = String(toAddress || '').trim();
+      if (custom && !EMAIL_RE.test(custom)) throw new AppError(400, `כתובת המייל של הנמען לא תקינה: ${custom}`);
+      const same = !custom || custom.toLowerCase() === String(t.replyTarget.address).toLowerCase();
+      const to = same ? { name: t.replyTarget.name || '', address: t.replyTarget.address } : { name: '', address: custom };
       const li = t.lastIn;
       const subject = /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
       const quoteHead = `בתאריך ${fmtDate(li.date)}, ${li.from.name || li.from.address} כתב/ה:`;
@@ -420,7 +439,7 @@ class Engine {
       const references = [...(li.references || []), li.messageId].filter(Boolean);
 
       const messageId = await this.p.send({
-        to: { name: t.replyTarget.name || '', address: t.replyTarget.address },
+        to,
         subject, text, html,
         inReplyTo: li.messageId || undefined,
         references: references.length ? references : undefined,
@@ -431,13 +450,13 @@ class Engine {
       const pend = this.pending.get(t.id) || [];
       pend.push({
         id: 'pending-' + Date.now(), direction: 'out', name: config.FROM_NAME, email: null,
-        author: user.name, authorKey: user.key, date: new Date().toISOString(), body, quoted: null,
+        author: user.name, authorKey: user.key, to: to.address, date: new Date().toISOString(), body, quoted: null,
         attachments: files.map((f, i) => ({ id: null, name: f.name, type: f.type, size: f.size })), messageId,
       });
       this.pending.set(t.id, pend);
       // המייל כבר נשלח – גם אם עדכון התוויות נכשל, לא מחזירים שגיאה (אחרת ישלחו שוב)
       await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.reopen, L.followup]).catch(e => console.error('[reply] labels', e.message));
-      this.addLog(id, user, 'reply', `השיב/ה ל-${t.replyTarget.address}`);
+      this.addLog(id, user, 'reply', same ? `השיב/ה ל-${to.address}` : `השיב/ה ל-${to.address} (נמען שונה מהפונה ${t.replyTarget.address})`);
       return this.refresh(id);
     });
   }
