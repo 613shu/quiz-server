@@ -276,6 +276,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .locked { border-bottom: 1px solid var(--line); padding: 16px 20px; text-align: center; color: var(--ink-2); background: rgba(255,176,32,.06); }
 .locked b { color: #ffd070; }
 .c-addr { color: var(--muted); direction: ltr; font-size: 12.5px; }
+.c-to { flex: 0 1 290px; min-width: 190px; direction: ltr; text-align: left; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg-2); border: 1.5px solid var(--line); border-radius: 10px; padding: 5px 10px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.c-to:focus { border-color: var(--coral); box-shadow: 0 0 0 3px rgba(255,122,69,.14); }
+.c-to[readonly] { color: var(--muted); }
+.c-to-reset { font: inherit; font-size: 12px; color: var(--ink-2); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+.c-to-reset:hover { border-color: var(--coral); color: var(--ink); }
+.c-to-note { background: rgba(255,176,32,.1); color: #ffd98a; border: 1px solid rgba(255,176,32,.35); border-radius: 12px; padding: 6px 12px; margin-bottom: 8px; font-size: 12.5px; }
+.b-to { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 .c-warn { background: rgba(255,176,32,.1); color: #ffd98a; border: 1px solid rgba(255,176,32,.35); border-radius: 12px; padding: 8px 12px; margin-bottom: 8px; font-size: 13px; }
 .c-box.busy textarea { color: var(--muted); }
 .c-box.drag { border-color: var(--coral); border-style: dashed; }
