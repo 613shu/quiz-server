@@ -47,7 +47,6 @@ module.exports = {
   // דומיינים של הארגון – בהיסטוריה המצוטטת, הודעה מכתובת בדומיין הזה מוצגת כתשובת צוות
   TEAM_DOMAINS: (env.TEAM_DOMAINS || 'koh.org.il,kerenolamhatorah.org').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
 
-  MANAGER_EMAIL: env.MANAGER_EMAIL || 'israel@kerenolamhatorah.org',
   TEAM: parseTeam(env.TEAM_USERS),
   SESSION_SECRET: env.SESSION_SECRET || '',
   CATEGORIES,
