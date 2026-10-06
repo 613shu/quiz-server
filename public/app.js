@@ -8,7 +8,7 @@ const ls = {
 
 const STATUS = { new: 'חדשה', in_progress: 'בטיפול', handled: 'טופלה', escalated: 'הועברה למנהל', ignored: 'הוסתרה' };
 const STATUS_COLOR = { new: 'var(--blue)', in_progress: 'var(--amber)', handled: 'var(--green)', escalated: 'var(--violet)', ignored: '#b5bad0' };
-const TABS = [['open', 'פתוחות'], ['mine', 'שלי'], ['handled', 'טופלו'], ['escalated', 'הועברו למנהל'], ['ignored', 'הוסתרו']];
+const TABS = [['open', 'פתוחות'], ['mine', 'שלי'], ['handled', 'טופלו'], ['escalated', '🗂 הועבר למנהל'], ['ignored', 'הוסתרו']];
 const TEAM_COLORS = ['#e8488a', '#0f9f8f', '#f08c1a', '#7c4dff', '#3b6cf6', '#16a36a'];
 const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0ea5e9', '#16a36a', '#c2410c'];
 const EVENT_ICON = { take: '🙋', release: '↩️', handled: '✅', reopen: '🔄', escalate: '↗️', categories: '🏷️', ignore: '🙈', reply: '✉️' };
@@ -180,7 +180,7 @@ function renderStats() {
 
 function renderTabs() {
   const c = S.counts;
-  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button class="tab ${S.view === k ? 'active' : ''}" data-view="${k}">${l}<span class="cnt">${k === 'open' ? c.open : k === 'mine' ? c.mine : c[k] || 0}</span></button>`).join('');
+  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button class="tab ${S.view === k ? 'active' : ''}" data-view="${k}">${l}<span class="cnt">${k === 'open' ? c.open : k === 'mine' ? c.mine : k === 'escalated' ? c.escalatedOpen || 0 : c[k] || 0}</span></button>`).join('');
 }
 
 function renderChips() {
@@ -189,7 +189,11 @@ function renderChips() {
     S.cfg.categories.map(c => `<button class="chip ${S.category === c.key ? 'active' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}${by[c.key] ? `<span class="n">${by[c.key]}</span>` : ''}</button>`).join('');
 }
 
-const isUnread = it => it.status === 'new' && S.seen[it.id] !== it.lastIncoming;
+const isUnread = it => (it.status === 'new' || (it.status === 'escalated' && it.mgr === 'new')) && S.seen[it.id] !== it.lastIncoming;
+const MGR_LABEL = { new: 'חדשה', in_progress: 'בטיפול', answered: 'נענתה' };
+const statusText = it => it.status === 'escalated'
+  ? `אצל המנהל · ${MGR_LABEL[it.mgr] || ''}${it.mgr === 'in_progress' && it.assigneeName ? ' – ' + it.assigneeName : ''}`
+  : STATUS[it.status] + (it.status === 'in_progress' ? ' · ' + it.assigneeName : '');
 
 function renderList() {
   const el = $('#list');
@@ -206,7 +210,7 @@ function renderList() {
         <div class="inq-subj">${esc(it.subject)}</div>
         <div class="inq-snip">${esc(it.snippet)}</div>
         <div class="inq-meta">
-          <span class="pill ${it.status}">${STATUS[it.status]}${it.status === 'in_progress' ? ' · ' + esc(it.assigneeName) : ''}</span>
+          <span class="pill ${it.status}">${esc(statusText(it))}</span>
           ${it.returned ? '<span class="pill returned">↩ הלקוח חזר</span>' : ''}
           ${it.categories.map(catPill).join('')}
           ${it.hasAttachments ? '<span class="mini">📎</span>' : ''}
@@ -301,11 +305,16 @@ function renderDetail() {
   const d = S.detail, el = $('#detail');
   if (!d) { el.innerHTML = `<div class="empty-detail"><div class="big">💬</div><div>בחרו פניה מהרשימה כדי לראות את כל השיחה</div></div>`; return; }
   const me = S.me.key;
-  const mine = d.status === 'in_progress' && d.assignee === me;
-  const other = d.status === 'in_progress' && d.assignee !== me;
+  const esc_ = d.status === 'escalated';
+  const mine = (d.status === 'in_progress' || esc_) && d.assignee === me;
+  const other = (d.status === 'in_progress' || esc_) && !!d.assignee && d.assignee !== me;
 
   let actions = '';
-  if (d.status === 'new') actions = `
+  if (esc_) {
+    actions = (mine ? `<button class="btn ghost sm" data-act="release">↩ שחרר</button>` : !d.assignee ? `<button class="btn primary" data-act="take">🙋 אני מטפל/ת בזה</button>` : '')
+      + `<button class="btn green" data-act="handled">✓ סמן כטופל</button><button class="btn amber" data-act="reopen">🔄 החזר לצוות</button>`;
+  }
+  else if (d.status === 'new') actions = `
     <button class="btn primary" data-act="take">🙋 אני מטפל/ת בזה</button>
     <button class="btn green" data-act="handled">✓ סמן כטופל</button>
     <button class="btn violet" data-act="escalate">↗ העבר למנהל</button>
@@ -317,14 +326,14 @@ function renderDetail() {
   else if (d.status === 'handled') actions = `
     <button class="btn primary" data-act="take" title="למשל: נזכרתם להוסיף משהו ללקוח">🙋 אני מטפל/ת בזה (תגובה נוספת)</button>
     <button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
-  else if (['escalated', 'ignored'].includes(d.status)) actions = `<button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
+  else if (d.status === 'ignored') actions = `<button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
 
   let owner = '';
-  if (d.status === 'in_progress') owner = `<span class="owner">${avatar(d.assigneeName, teamColor(d.assignee), 'sm team')} ${mine ? 'בטיפול שלך' : `בטיפול של <b>${esc(d.assigneeName)}</b>`}</span>`;
+  if (d.status === 'in_progress' || (esc_ && d.assignee)) owner = `<span class="owner">${avatar(d.assigneeName, teamColor(d.assignee), 'sm team')} ${mine ? 'בטיפול שלך' : `בטיפול של <b>${esc(d.assigneeName)}</b>`}</span>`;
 
   let composer;
   if (mine) composer = composerHtml(d);
-  else if (d.status === 'new') composer = `<div class="locked">כדי לענות, לחצו <b>"אני מטפל/ת בזה"</b>. כך אף אחד אחר לא יענה במקביל.</div>`;
+  else if (d.status === 'new' || (esc_ && !d.assignee)) composer = `<div class="locked">כדי לענות, לחצו <b>"אני מטפל/ת בזה"</b>. כך אף אחד אחר לא יענה במקביל.</div>`;
   else if (other) composer = `<div class="locked">🔒 <b>${esc(d.assigneeName)}</b> מטפל/ת בפניה הזו. אפשר לקרוא, אבל לא לענות.</div>`;
   else composer = '';
 
@@ -340,7 +349,7 @@ function renderDetail() {
       </div>
       <div class="d-subj">${esc(d.subject)}</div>
       <div class="d-state">
-        <span class="pill ${d.status}">${STATUS[d.status]}</span>
+        <span class="pill ${d.status}">${esc(d.status === 'escalated' ? 'אצל המנהל · ' + (MGR_LABEL[d.mgr] || '') : STATUS[d.status])}</span>
         ${d.returned ? '<span class="pill returned">↩ הלקוח כתב שוב אחרי שענינו</span>' : ''}
         ${owner}
       </div>
@@ -571,11 +580,11 @@ function bindApp() {
 
   $('#dlg-escalate').addEventListener('close', async () => {
     if ($('#dlg-escalate').returnValue !== 'ok') return;
-    const t = toast('מעביר למנהל – אוסף את כל ההתכתבות והקבצים ושולח…', 'wait');
+    const t = toast('מעביר לתיקיית המנהל…', 'wait');
     document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
     try {
       S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/escalate`, { method: 'POST', json: { note: $('#esc-note').value } });
-      t.set(`הפניה הועברה למנהל (${S.cfg.manager}) ✓`, 'ok'); await loadList(); renderDetail();
+      t.set('הפניה הועברה לתיקיית "הועבר למנהל" ✓', 'ok'); await loadList(); renderDetail();
     } catch (e) { t.set('ההעברה למנהל נכשלה: ' + e.message, 'err'); document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = false)); }
   });
 
@@ -589,7 +598,6 @@ async function startApp() {
   $('#login').hidden = true; $('#app').hidden = false;
   $('#me-name').textContent = S.me.name;
   $('#me-avatar').outerHTML = avatar(S.me.name, teamColor(S.me.key), 'sm team').replace('<span', '<span id="me-avatar"');
-  $('#mgr-addr').textContent = S.cfg.manager;
   if (!started) { bindApp(); started = true; }
   renderDetail();
   loadList().catch(err => toast(err.message, 'err'));
