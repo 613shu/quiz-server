@@ -78,7 +78,7 @@ app.get('/api/config', h(req => ({
   me: { key: req.user.key, name: req.user.name },
   team: config.TEAM.map(u => ({ key: u.key, name: u.name })),
   categories: config.CATEGORIES,
-  inbox: provider.address, manager: config.MANAGER_EMAIL,
+  inbox: provider.address,
 })));
 
 app.get('/api/status', h(() => ({ ...provider.status, provider: provider.name, configured: provider.configured() })));
