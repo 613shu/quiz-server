@@ -20,6 +20,7 @@ const CATEGORIES = [
   { key: 'ambassador',name: 'שגרירות',            color: '#ec4899' },
   { key: 'proof',     name: 'אסמכתאות',           color: '#10b981', aliases: ['אסמכתא', 'אסמכתה', 'אסמכתאות', 'אסמכתות'] },
   { key: 'english',   name: 'אנגלית',             color: '#0f766e', aliases: ['english', 'אנגלית'] },
+  { key: 'system',    name: 'הודעות מערכת',       color: '#a16207', aliases: ['מערכת', 'הודעות מערכת', 'system'] },
   { key: 'general',   name: 'כללי',               color: '#64748b' },
 ];
 
@@ -38,6 +39,11 @@ module.exports = {
   ACCEPT_TO: (env.ACCEPT_TO ?? 'help@koh.org.il').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
   // שולחים שאינם פניות (הודעות מערכת של גוגל וכו') – מוסתרים אוטומטית
   IGNORE_SENDERS: (env.IGNORE_SENDERS || 'no-reply@accounts.google.com,forwarding-noreply@google.com,mail-noreply@google.com,mailer-daemon@googlemail.com')
+    .toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
+
+  // שולחים שההודעות שלהם הן "הודעות מערכת" – נכנסות אוטומטית לקטגוריה הזו.
+  // מזוהים לפי שם השולח או הכתובת (מספיק חלק מהשם, בלי הבדל בין אותיות גדולות לקטנות).
+  SYSTEM_SENDERS: (env.SYSTEM_SENDERS || 'Synchroline,MailAdmin,Charidy Support')
     .toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
 
   // ייבוא הודעות קיימות מאאוטלוק: רק מיילים מהכתובות האלה עם נושא "ייבוא: ..." מיובאים
