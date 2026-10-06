@@ -203,7 +203,7 @@ class Engine {
       email: this.isOut(m) ? null : senderOf(m).address,
       author: this.isOut(m) ? (m.author ? this.userName(m.author) : null) : null,
       authorKey: this.isOut(m) ? m.author || null : null,
-      to: this.isOut(m) ? ((m.to || []).find(a => a !== this.me) || null) : null,
+      to: this.isOut(m) ? ((m.to || []).filter(a => a !== this.me).join(', ') || null) : null,
       date: m.date, body: m.body, quoted: m.quoted,
       attachments: m.attachments.map(a => ({ id: `${m.uid}-${a.index}`, name: a.name, type: a.type, size: a.size, inline: a.inline })),
     });
@@ -425,10 +425,18 @@ class Engine {
     return this.locked(id, async () => {
       const t = this.get(id);
       if (!['in_progress', 'escalated'].includes(t.status) || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "קח לטיפול"');
-      const custom = String(toAddress || '').trim();
-      if (custom && !EMAIL_RE.test(custom)) throw new AppError(400, `כתובת המייל של הנמען לא תקינה: ${custom}`);
-      const same = !custom || custom.toLowerCase() === String(t.replyTarget.address).toLowerCase();
-      const to = same ? { name: t.replyTarget.name || '', address: t.replyTarget.address } : { name: '', address: custom };
+      // אפשר כמה נמענים – מופרדים בפסיק, נקודה-פסיק או רווח
+      const def = String(t.replyTarget.address).toLowerCase();
+      const seen = new Set();
+      const list = String(toAddress || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean)
+        .filter(a => !seen.has(a.toLowerCase()) && seen.add(a.toLowerCase()));
+      const bad = list.find(a => !EMAIL_RE.test(a));
+      if (bad) throw new AppError(400, `כתובת המייל של הנמען לא תקינה: ${bad}`);
+      if (list.length > 10) throw new AppError(400, 'אפשר לשלוח לעד 10 נמענים במייל אחד');
+      const same = !list.length || (list.length === 1 && list[0].toLowerCase() === def);
+      const to = same ? [{ name: t.replyTarget.name || '', address: t.replyTarget.address }]
+        : list.map(a => (a.toLowerCase() === def ? { name: t.replyTarget.name || '', address: t.replyTarget.address } : { name: '', address: a }));
+      const toText = to.map(x => x.address).join(', ');
       const li = t.lastIn;
       const subject = /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
       const quoteHead = `בתאריך ${fmtDate(li.date)}, ${li.from.name || li.from.address} כתב/ה:`;
@@ -450,13 +458,13 @@ class Engine {
       const pend = this.pending.get(t.id) || [];
       pend.push({
         id: 'pending-' + Date.now(), direction: 'out', name: config.FROM_NAME, email: null,
-        author: user.name, authorKey: user.key, to: to.address, date: new Date().toISOString(), body, quoted: null,
+        author: user.name, authorKey: user.key, to: toText, date: new Date().toISOString(), body, quoted: null,
         attachments: files.map((f, i) => ({ id: null, name: f.name, type: f.type, size: f.size })), messageId,
       });
       this.pending.set(t.id, pend);
       // המייל כבר נשלח – גם אם עדכון התוויות נכשל, לא מחזירים שגיאה (אחרת ישלחו שוב)
       await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.reopen, L.followup]).catch(e => console.error('[reply] labels', e.message));
-      this.addLog(id, user, 'reply', same ? `השיב/ה ל-${to.address}` : `השיב/ה ל-${to.address} (נמען שונה מהפונה ${t.replyTarget.address})`);
+      this.addLog(id, user, 'reply', same ? `השיב/ה ל-${toText}` : `השיב/ה ל-${toText} (נמענים שונים מברירת המחדל – הפונה ${t.replyTarget.address})`);
       return this.refresh(id);
     });
   }
