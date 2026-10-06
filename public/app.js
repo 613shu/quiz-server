@@ -368,7 +368,15 @@ function renderDetail() {
 // נמען התשובה: ברירת המחדל היא הפונה, ואפשר לשנות ידנית (נשמר לכל פניה עד השליחה)
 const defTo = d => d.replyTo || d.fromEmail || '';
 const toOf = d => S.toBy[d.id] ?? defTo(d);
-const toChanged = d => toOf(d).trim().toLowerCase() !== defTo(d).toLowerCase();
+// אפשר כמה נמענים – מופרדים בפסיק, נקודה-פסיק או רווח
+const toList = d => [...new Set(toOf(d).split(/[,;\s]+/).map(s => s.trim()).filter(Boolean).map(s => s.toLowerCase()))];
+const toChanged = d => { const l = toList(d); return !(l.length === 1 && l[0] === defTo(d).toLowerCase()); };
+function toNote(d) {
+  const l = toList(d), def = defTo(d).toLowerCase();
+  if (!l.length) return 'חסרה כתובת מייל של הנמען.';
+  if (l.length === 1) return `שימו לב: התשובה תישלח לכתובת אחרת מזו של הפונה (${defTo(d)}).`;
+  return `התשובה תישלח ל-${l.length} נמענים` + (l.includes(def) ? ', כולל הפונה.' : `. שימו לב: הפונה (${defTo(d)}) לא ביניהם.`);
+}
 const validEmail = s => /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/.test(s);
 
 function composerHtml(d) {
@@ -377,11 +385,11 @@ function composerHtml(d) {
     <form class="composer" id="composer" novalidate>
       <div class="c-head">
         <label for="reply-to">✉️ תשובה אל</label>
-        <input type="email" id="reply-to" class="c-to" dir="ltr" autocomplete="off" spellcheck="false" value="${esc(toOf(d))}" placeholder="name@example.com" title="אפשר לשנות את כתובת הנמען">
+        <input type="text" inputmode="email" id="reply-to" class="c-to" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(toOf(d))}" placeholder="name@example.com, other@example.com" title="אפשר לשנות את הנמען, או להוסיף כתובות נוספות מופרדות בפסיק">
         <button type="button" class="c-to-reset" id="reply-to-reset" title="חזרה לכתובת של הפונה" ${toChanged(d) ? '' : 'hidden'}>↺ חזרה לפונה</button>
-        <span>· תישלח במייל באותה שרשרת</span>
+        <span>· תישלח במייל באותה שרשרת · לכמה נמענים: הפרידו בפסיק</span>
       </div>
-      <div class="c-to-note" id="reply-to-note" ${toChanged(d) ? '' : 'hidden'}>שימו לב: התשובה תישלח לכתובת אחרת מזו של הפונה (<span dir="ltr">${esc(defTo(d))}</span>).</div>
+      <div class="c-to-note" id="reply-to-note" ${toChanged(d) ? '' : 'hidden'}>${esc(toNote(d))}</div>
       ${blocked ? `<div class="c-warn">⚠️ שליחת מיילים לא זמינה כרגע בשרת, ולכן התשובה כנראה לא תישלח. אפשר לכתוב – הטיוטה נשמרת.</div>` : ''}
       <div class="c-box" id="c-box">
         <textarea id="reply-body" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
@@ -488,8 +496,9 @@ async function sendReply() {
   const id = d.id;
   const body = ($('#reply-body').value || '').trim();
   if (!body) { $('#reply-body').focus(); $('#c-box').classList.add('shake'); setTimeout(() => $('#c-box')?.classList.remove('shake'), 500); return toast('כתבו תשובה לפני השליחה', 'err', 4000); }
-  const to = toOf(d).trim();
-  if (!validEmail(to)) { $('#reply-to')?.focus(); return toast(to ? `כתובת המייל של הנמען לא תקינה: ${to}` : 'חסרה כתובת מייל של הנמען', 'err', 5000); }
+  const tl = toList(d), to = tl.join(', '), badTo = tl.find(a => !validEmail(a));
+  if (!tl.length || badTo) { $('#reply-to')?.focus(); return toast(badTo ? `כתובת המייל של הנמען לא תקינה: ${badTo}` : 'חסרה כתובת מייל של הנמען', 'err', 5000); }
+  if (tl.length > 10) { $('#reply-to')?.focus(); return toast('אפשר לשלוח לעד 10 נמענים במייל אחד', 'err', 5000); }
   const other = toChanged(d);
   const files = filesOf(id);
   const total = files.reduce((a, f) => a + f.size, 0);
@@ -600,7 +609,7 @@ function bindApp() {
     if (e.target.id === 'reply-to') {
       S.toBy[S.detail.id] = e.target.value;
       const ch = toChanged(S.detail);
-      $('#reply-to-reset').hidden = !ch; $('#reply-to-note').hidden = !ch;
+      $('#reply-to-reset').hidden = !ch; $('#reply-to-note').hidden = !ch; $('#reply-to-note').textContent = toNote(S.detail);
     }
   });
   det.addEventListener('submit', e => { e.preventDefault(); sendReply(); });
