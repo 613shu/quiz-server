@@ -15,7 +15,7 @@ const EVENT_ICON = { take: '🙋', release: '↩️', handled: '✅', reopen: '�
 
 const S = {
   cfg: null, me: null, view: 'open', category: null, q: '',
-  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, sending: null, sendErr: {}, sentOk: {},
+  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
 
@@ -255,7 +255,8 @@ function bubble(m, first) {
         ${m.reconstructed ? '<div class="b-recon" title="ההודעה הזו לא יובאה בנפרד – היא שוחזרה מתוך ההיסטוריה שמצוטטת בהודעה מאוחרת יותר">↩ מתוך ההתכתבות המצוטטת</div>' : ''}
         ${showQuoted ? `<button class="q-toggle" data-q="${m.id}">הצג היסטוריה קודמת</button><div class="quoted" id="q-${m.id}" hidden>${esc(m.quoted)}</div>` : ''}
         ${m.attachments.length ? attList(m.attachments) : ''}
-        ${String(m.id).startsWith('pending') ? '<div class="sending">✓ נשלח ללקוח</div>' : ''}
+        ${out && m.to && m.to.toLowerCase() !== (S.detail.fromEmail || '').toLowerCase() ? `<div class="b-to">נשלח אל <span dir="ltr">${esc(m.to)}</span></div>` : ''}
+        ${String(m.id).startsWith('pending') ? '<div class="sending">✓ נשלח</div>' : ''}
       </div>
     </div>`;
 }
@@ -364,11 +365,23 @@ function renderDetail() {
   const cv = $("#convo"); requestAnimationFrame(() => { cv.scrollTop = 0; });
 }
 
+// נמען התשובה: ברירת המחדל היא הפונה, ואפשר לשנות ידנית (נשמר לכל פניה עד השליחה)
+const defTo = d => d.replyTo || d.fromEmail || '';
+const toOf = d => S.toBy[d.id] ?? defTo(d);
+const toChanged = d => toOf(d).trim().toLowerCase() !== defTo(d).toLowerCase();
+const validEmail = s => /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/.test(s);
+
 function composerHtml(d) {
   const blocked = S.status.send && S.status.send.ok === false;
   return `
     <form class="composer" id="composer" novalidate>
-      <div class="c-head">✉️ תשובה אל <b>${esc(d.fromName)}</b> <span class="c-addr">${esc(d.fromEmail)}</span> · תישלח במייל באותה שרשרת</div>
+      <div class="c-head">
+        <label for="reply-to">✉️ תשובה אל</label>
+        <input type="email" id="reply-to" class="c-to" dir="ltr" autocomplete="off" spellcheck="false" value="${esc(toOf(d))}" placeholder="name@example.com" title="אפשר לשנות את כתובת הנמען">
+        <button type="button" class="c-to-reset" id="reply-to-reset" title="חזרה לכתובת של הפונה" ${toChanged(d) ? '' : 'hidden'}>↺ חזרה לפונה</button>
+        <span>· תישלח במייל באותה שרשרת</span>
+      </div>
+      <div class="c-to-note" id="reply-to-note" ${toChanged(d) ? '' : 'hidden'}>שימו לב: התשובה תישלח לכתובת אחרת מזו של הפונה (<span dir="ltr">${esc(defTo(d))}</span>).</div>
       ${blocked ? `<div class="c-warn">⚠️ שליחת מיילים לא זמינה כרגע בשרת, ולכן התשובה כנראה לא תישלח. אפשר לכתוב – הטיוטה נשמרת.</div>` : ''}
       <div class="c-box" id="c-box">
         <textarea id="reply-body" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
@@ -424,6 +437,7 @@ function renderSendState(p) {
   const busy = S.sending === id;
   if (box) box.classList.toggle('busy', busy);
   if (ta) ta.readOnly = busy;
+  const ti = $('#reply-to'); if (ti) ti.readOnly = busy;
   if (btn) { btn.disabled = busy; btn.innerHTML = busy ? '<span class="spin"></span> שולח…' : 'שליחה ➤'; }
   if (fb) fb.classList.toggle('disabled', busy);
   if (busy) {
@@ -474,10 +488,13 @@ async function sendReply() {
   const id = d.id;
   const body = ($('#reply-body').value || '').trim();
   if (!body) { $('#reply-body').focus(); $('#c-box').classList.add('shake'); setTimeout(() => $('#c-box')?.classList.remove('shake'), 500); return toast('כתבו תשובה לפני השליחה', 'err', 4000); }
+  const to = toOf(d).trim();
+  if (!validEmail(to)) { $('#reply-to')?.focus(); return toast(to ? `כתובת המייל של הנמען לא תקינה: ${to}` : 'חסרה כתובת מייל של הנמען', 'err', 5000); }
+  const other = toChanged(d);
   const files = filesOf(id);
   const total = files.reduce((a, f) => a + f.size, 0);
   if (total > MAX_TOTAL) return toast('הקבצים גדולים מדי יחד (מעל 24MB). הסירו חלק מהם ונסו שוב.', 'err');
-  const fd = new FormData(); fd.append('body', body); files.forEach(f => fd.append('files', f));
+  const fd = new FormData(); fd.append('body', body); if (other) fd.append('to', to); files.forEach(f => fd.append('files', f));
 
   S.sending = id; delete S.sendErr[id]; delete S.sentOk[id];
   S.sendProgress = files.length ? { stage: 'upload', loaded: 0, total } : { stage: 'send' };
@@ -488,8 +505,8 @@ async function sendReply() {
       if (S.detail && S.detail.id === id) renderSendState();
     });
     S.sending = null; S.sendProgress = null;
-    delete S.drafts[id]; S.filesBy[id] = []; S.sentOk[id] = d.fromEmail;
-    toast(`התשובה נשלחה ל-${d.fromName} ✓`, 'ok');
+    delete S.drafts[id]; delete S.toBy[id]; S.filesBy[id] = []; S.sentOk[id] = to;
+    toast(`התשובה נשלחה ל-${other ? to : d.fromName} ✓`, 'ok');
     if (S.detail && S.detail.id === id) { S.detail = res; renderDetail(); }
     loadList().catch(() => {});
   } catch (err) {
@@ -557,6 +574,7 @@ function bindApp() {
     if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? 'הצג היסטוריה קודמת' : 'הסתר היסטוריה'; return; }
     const rm = e.target.closest('[data-rm]'); if (rm) { filesOf(S.detail.id).splice(+rm.dataset.rm, 1); renderFiles(); return; }
     if (e.target.closest('#retry-btn')) return sendReply();
+    if (e.target.closest('#reply-to-reset')) { delete S.toBy[S.detail.id]; $('#reply-to').value = defTo(S.detail); $('#reply-to-reset').hidden = true; $('#reply-to-note').hidden = true; return; }
     if (e.target.closest('#err-x')) { delete S.sendErr[S.detail.id]; renderSendState(); return; }
     const c = e.target.closest('.cat-toggle');
     if (c) {
@@ -574,8 +592,17 @@ function bindApp() {
   det.addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('#c-box')?.classList.remove('drag'); } });
   det.addEventListener('drop', e => { if (!$('#c-box')) return; e.preventDefault(); dragN = 0; $('#c-box').classList.remove('drag'); addFiles([...e.dataTransfer.files]); });
   det.addEventListener('paste', e => { if (e.target.id !== 'reply-body') return; const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); } });
+  // Enter בשדה הנמען לא שולח את המייל – רק עובר לכתיבת התשובה
+  det.addEventListener('keydown', e => { if (e.target.id === 'reply-to' && e.key === 'Enter') { e.preventDefault(); $('#reply-body')?.focus(); } });
   det.addEventListener('keydown', e => { if (e.target.id === 'reply-body' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); } });
-  det.addEventListener('input', e => { if (e.target.id === 'reply-body') S.drafts[S.detail.id] = e.target.value; });
+  det.addEventListener('input', e => {
+    if (e.target.id === 'reply-body') S.drafts[S.detail.id] = e.target.value;
+    if (e.target.id === 'reply-to') {
+      S.toBy[S.detail.id] = e.target.value;
+      const ch = toChanged(S.detail);
+      $('#reply-to-reset').hidden = !ch; $('#reply-to-note').hidden = !ch;
+    }
+  });
   det.addEventListener('submit', e => { e.preventDefault(); sendReply(); });
 
   $('#dlg-escalate').addEventListener('close', async () => {
@@ -604,7 +631,7 @@ async function startApp() {
   setInterval(async () => {
     if (document.hidden || document.querySelector('dialog[open]') || $('#app').hidden) return;
     await loadList().catch(() => {});
-    const busy = S.sending || document.activeElement?.id === 'reply-body' || (S.selId && filesOf(S.selId).length);
+    const busy = S.sending || ['reply-body', 'reply-to'].includes(document.activeElement?.id) || (S.selId && filesOf(S.selId).length);
     if (S.selId && !busy) {
       const fresh = await api('/inquiries/' + encodeURIComponent(S.selId)).catch(() => null);
       if (fresh && JSON.stringify(fresh) !== JSON.stringify(S.detail)) { S.detail = fresh; renderDetail(); }
