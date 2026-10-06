@@ -2,7 +2,7 @@
 // מצב כל פניה נשמר כתוויות בג׳ימייל (KOH/...), ולכן שורד הפעלה מחדש של השרת.
 const config = require('./config');
 const { categorize, isEnglish } = require('./categorize');
-const { extractForwardedSender, extractAttachment, allAttachments } = require('./mail/parse');
+const { extractForwardedSender, extractAttachment } = require('./mail/parse');
 const { splitHistory, bodyKey } = require('./mail/history');
 
 const L = {
@@ -172,6 +172,9 @@ class Engine {
     else if (assignee) status = 'in_progress';
     else status = 'new';
 
+    // בתיקיית המנהל: חדשה (הלקוח כתב אחרון / עוד לא נענתה), בטיפול, או נענתה
+    const mgr = status === 'escalated' ? (assignee ? 'in_progress' : lastIsOut ? 'answered' : 'new') : null;
+
     const hadReply = msgs.some(m => this.isOut(m) || m.labels.has(L.done));
     const returned = status === 'new' && hadReply && !this.isOut(last);
 
@@ -204,7 +207,7 @@ class Engine {
       fromName: customer.name || customer.address,
       fromEmail: customer.address,
       replyTarget,
-      status, assignee, returned, categories,
+      status, mgr, assignee, returned, categories,
       lastIncoming: lastIn.date,
       lastActivity: pend.length ? pend[pend.length - 1].date : last.date,
       uids: msgs.map(m => m.uid),
@@ -257,7 +260,7 @@ class Engine {
   summary(t) {
     return {
       id: t.id, subject: t.subject, fromName: t.fromName, fromEmail: t.fromEmail,
-      status: t.status, assignee: t.assignee, assigneeName: t.assignee ? this.userName(t.assignee) : null,
+      status: t.status, mgr: t.mgr, assignee: t.assignee, assigneeName: t.assignee ? this.userName(t.assignee) : null,
       returned: t.returned, categories: t.categories, lastIncoming: t.lastIncoming,
       messageCount: t.messages.length,
       hasAttachments: t.messages.some(m => m.attachments.length),
@@ -277,7 +280,7 @@ class Engine {
     let items = [...this.threads().values()];
     const f = {
       open: t => t.status === 'new' || t.status === 'in_progress',
-      mine: t => t.status === 'in_progress' && t.assignee === user.key,
+      mine: t => (t.status === 'in_progress' || t.status === 'escalated') && t.assignee === user.key,
       handled: t => t.status === 'handled',
       escalated: t => t.status === 'escalated',
       ignored: t => t.status === 'ignored',
@@ -292,7 +295,7 @@ class Engine {
   }
 
   counts(user) {
-    const c = { open: 0, new: 0, in_progress: 0, mine: 0, handled: 0, escalated: 0, ignored: 0, returned: 0, byCategory: {} };
+    const c = { open: 0, new: 0, in_progress: 0, mine: 0, handled: 0, escalated: 0, escalatedOpen: 0, ignored: 0, returned: 0, byCategory: {} };
     for (const t of this.threads().values()) {
       c[t.status]++;
       if (t.status === 'new' || t.status === 'in_progress') {
@@ -300,7 +303,8 @@ class Engine {
         if (t.returned) c.returned++;
         for (const k of t.categories) c.byCategory[k] = (c.byCategory[k] || 0) + 1;
       }
-      if (t.status === 'in_progress' && t.assignee === user.key) c.mine++;
+      if (t.status === 'escalated' && t.mgr !== 'answered') c.escalatedOpen++;
+      if ((t.status === 'in_progress' || t.status === 'escalated') && t.assignee === user.key) c.mine++;
     }
     return c;
   }
@@ -327,7 +331,6 @@ class Engine {
   take(id, user) {
     return this.locked(id, async () => {
       const t = this.get(id);
-      if (t.status === 'escalated') throw new AppError(409, 'הפניה הועברה למנהל');
       if (t.status === 'in_progress' && t.assignee !== user.key) throw new AppError(409, `הפניה כבר בטיפול של ${this.userName(t.assignee)}`);
       // פניה שכבר טופלה (למשל נזכרנו להוסיף משהו ללקוח): פותחים אותה זמנית לתגובה נוספת.
       // אם משחררים בלי לענות – היא חוזרת ל"טופלה".
@@ -359,8 +362,8 @@ class Engine {
       const t = this.get(id);
       if (t.status === 'in_progress' && t.assignee !== user.key) throw new AppError(409, `הפניה בטיפול של ${this.userName(t.assignee)}`);
       await this.p.modifyLabels([t.lastUid], [L.done], [L.reopen, L.followup]);
-      await this.p.modifyLabels(t.uids, [], this.byLabels());
-      this.addLog(id, user, 'handled', 'סימן/ה כטופל');
+      await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.esc]);
+      this.addLog(id, user, 'handled', t.status === 'escalated' ? 'סימן/ה כטופל (הוסרה מתיקיית המנהל)' : 'סימן/ה כטופל');
       return this.refresh(id);
     });
   }
@@ -371,7 +374,7 @@ class Engine {
       await this.p.modifyLabels(t.uids, [], [L.done, L.esc, L.ignore, L.followup, ...this.byLabels()]);
       if (t.raw.length && this.isOut(t.raw[t.raw.length - 1])) await this.p.modifyLabels([t.lastUid], [L.reopen, L.keep]);
       else await this.p.modifyLabels([t.lastUid], [L.keep]);
-      this.addLog(id, user, 'reopen', 'החזיר/ה לפניות הפתוחות');
+      this.addLog(id, user, 'reopen', t.status === 'escalated' ? 'החזיר/ה מהמנהל לפניות הפתוחות' : 'החזיר/ה לפניות הפתוחות');
       return this.refresh(id);
     });
   }
@@ -406,7 +409,7 @@ class Engine {
   reply(id, user, body, files) {
     return this.locked(id, async () => {
       const t = this.get(id);
-      if (t.status !== 'in_progress' || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "קח לטיפול"');
+      if (!['in_progress', 'escalated'].includes(t.status) || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "קח לטיפול"');
       const li = t.lastIn;
       const subject = /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
       const quoteHead = `בתאריך ${fmtDate(li.date)}, ${li.from.name || li.from.address} כתב/ה:`;
@@ -439,42 +442,14 @@ class Engine {
     });
   }
 
-  // העברה למנהל: כל ההתכתבות + קבצים במייל אחד, והפניה יורדת מהדשבורד
+  // העברה למנהל: רק תיוג. הפניה עוברת לתיקיית "הועבר למנהל" בדשבורד והמנהל מטפל בה משם (בלי מייל).
   escalate(id, user, note) {
     return this.locked(id, async () => {
       const t = this.get(id);
+      if (t.status === 'escalated') throw new AppError(409, 'הפניה כבר בתיקיית המנהל');
       if (t.status === 'in_progress' && t.assignee !== user.key) throw new AppError(409, `הפניה בטיפול של ${this.userName(t.assignee)}`);
-      const rows = t.messages.map(m => `
-        <div style="border:1px solid #ddd;border-radius:8px;padding:10px 12px;margin:0 0 10px;background:${m.direction === 'out' ? '#f0f7ff' : '#fff'}">
-          <div style="font-size:12px;color:#666;margin-bottom:6px"><b style="color:#222">${esc(m.direction === 'out' ? `הצוות${m.author ? ' (' + m.author + ')' : ''}` : `${m.name} &lt;${m.email}&gt;`)}</b> · ${esc(fmtDate(m.date))}</div>
-          <div>${esc(m.body).replace(/\n/g, '<br>')}</div></div>`).join('');
-      const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">
-        <p>פניה הועברה לטיפולך ע"י <b>${esc(user.name)}</b> ממערכת ניהול הפניות.</p>
-        ${note ? `<p style="background:#fff7e6;border-right:4px solid #f59e0b;padding:8px 12px"><b>הערה:</b> ${esc(note)}</p>` : ''}
-        <p><b>פונה:</b> ${esc(t.fromName)} &lt;${esc(t.fromEmail)}&gt;<br><b>נושא:</b> ${esc(t.subject)}</p>
-        <hr style="border:0;border-top:1px solid #ddd">${rows}</div>`;
-
-      const attachments = [];
-      let total = 0;
-      for (const m of t.raw) {
-        if (!m.attachments.length) continue;
-        const raw = await this.p.getRaw(m.uid);
-        for (const a of await allAttachments(raw)) {
-          if (total + a.content.length > 18 * 1024 * 1024) break;
-          total += a.content.length;
-          attachments.push(a);
-        }
-      }
-      await this.p.send({
-        to: config.MANAGER_EMAIL,
-        replyTo: t.replyTarget.address,
-        subject: `הועבר לטיפולך: ${baseSubject(t.subject)} – ${t.fromName}`,
-        html, text: html.replace(/<br>/g, '\n').replace(/<[^>]+>/g, ''),
-        headers: { 'X-KOH-System': 'forward', 'X-KOH-Author': user.key },
-        attachments,
-      });
-      await this.p.modifyLabels(t.uids, [L.esc], this.byLabels()).catch(e => console.error('[escalate] labels', e.message));
-      this.addLog(id, user, 'escalate', `העביר/ה למנהל (${config.MANAGER_EMAIL})${note ? ' – ' + note : ''}`);
+      await this.p.modifyLabels(t.uids, [L.esc], this.byLabels());
+      this.addLog(id, user, 'escalate', `העביר/ה למנהל${note ? ' – ' + note : ''}`);
       return this.refresh(id);
     });
   }
