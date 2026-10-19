@@ -770,6 +770,12 @@ class Engine {
         overdue: all.filter(s => s.overdue).length,
         today: members.reduce((a, m) => a + m.today, 0),
         range: members.reduce((a, m) => a + m.range, 0),
+        replies: members.reduce((a, m) => a + m.replies, 0),
+        avgResponseMin: (() => {
+          const all = [];
+          for (const [, list] of replies) for (const x of list) if (x.day >= from && x.day <= to && x.ms != null && x.ms >= 0) all.push(x.ms);
+          return all.length ? Math.round(all.reduce((a, b) => a + b, 0) / all.length / 60000) : null;
+        })(),
       },
     };
   }

@@ -27,33 +27,27 @@
     M.data = await api(`/stats?from=${r.from}&to=${r.to}`);
   }
 
-  function kpi(n, l, col, view, warn) {
-    return `<button class="kpi ${warn && n ? 'warn' : ''}" style="--c:${col}" ${view ? `data-goview="${view}"` : 'disabled'}>
-      <span class="kpi-n">${n}</span><span class="kpi-l">${l}</span></button>`;
+  function kpi(n, l, sub) {
+    return `<div class="kpi"><span class="kpi-n">${n}</span><span class="kpi-l">${l}</span>${sub ? `<span class="kpi-s">${sub}</span>` : ''}</div>`;
   }
 
-  // שורה בטבלת הצוות – לחיצה על השורה פותחת את הפניות של אותו חבר צוות
+  // שורה בטבלת הצוות – רק נתוני הטווח שנבחר. לחיצה פותחת את הפניות של אותו חבר צוות
   function memberRow(m, max) {
-    const c = teamColor(m.key);
     const share = max ? Math.round((m.range / max) * 100) : 0;
-    const nb = (sub, n, cls = '') => `<button class="num-b ${n ? cls : 'zero'}" data-member="${esc(m.key)}" data-sub="${sub}">${n}</button>`;
-    return `<tr class="go ${m.deleted ? 'gone' : ''}" style="--c:${c}" data-member="${esc(m.key)}" tabindex="0">
+    return `<tr class="go ${m.deleted ? 'gone' : ''} ${m.range || m.replies ? '' : 'quiet'}" style="--c:${teamColor(m.key)}" data-member="${esc(m.key)}" tabindex="0">
       <td><div class="who"><span class="who-dot"></span><div><div class="who-name">${esc(m.name)}</div>
         <div class="who-sub">${m.deleted ? 'הוסר/ה מהצוות' : ROLE[m.role] || ''}</div></div></div></td>
-      <td class="n"><span class="big-n">${m.range}</span><span class="share" style="margin-inline:auto"><i style="width:${share}%"></i></span></td>
-      <td class="n">${m.today}</td>
-      <td class="n">${m.week}</td>
+      <td class="bar-cell"><div class="hbar"><span class="hbar-n">${m.range}</span><span class="hbar-t"><i style="width:${share}%"></i></span></div></td>
       <td class="n">${m.replies}</td>
-      <td class="n">${nb('open', m.open)}</td>
-      <td class="n">${nb('returned', m.returned, 'warm')}</td>
-      <td class="n">${nb('overdue', m.overdue, 'alert')}</td>
       <td class="n">${fmtDur(m.avgResponseMin)}</td>
+      <td class="go-cell">לפניות ←</td>
     </tr>`;
   }
 
   // עמודות יומיות מוערמות לפי חבר צוות (מעל 62 ימים – לפי שבועות)
   function buckets() {
     const { days } = M.data;
+    if (days.length <= 8) return days.map(d => ({ key: d, label: new Date(d + 'T12:00:00Z').toLocaleDateString('he-IL', { weekday: 'short', timeZone: 'UTC' }) + ' ' + fmtDay(d), title: dayName(d), days: [d] }));
     if (days.length <= 62) return days.map(d => ({ key: d, label: fmtDay(d), title: dayName(d), days: [d] }));
     const out = [];
     for (let i = 0; i < days.length; i += 7) {
@@ -89,7 +83,7 @@
   }
 
   function dayTable(members) {
-    const series = members.filter(m => m.range > 0 || !m.deleted);
+    const series = members.filter(m => m.range > 0);
     const bs = buckets().slice().reverse();
     const val = (m, b) => b.days.reduce((a, d) => a + (m.perDay[d] || 0), 0);
     return `<div class="tbl-wrap"><table class="tbl">
@@ -101,39 +95,43 @@
   }
 
   function renderStatsScreen() {
-    const el = $('#manage'), d = M.data;
+    const el = $('#manage'), d = M.data, t = d.totals;
     const r = rangeParams();
-    const members = d.members;
+    const members = d.members.slice().sort((a, b) => b.range - a.range || b.replies - a.replies);
     const max = Math.max(0, ...members.map(m => m.range));
-    const rangeLbl = d.from === d.to ? 'טופלו בטווח' : `טופלו <bdi>${fmtDay(d.from)}</bdi>–<bdi>${fmtDay(d.to)}</bdi>`;
+    const label = d.from === d.to ? (d.from === d.today ? 'היום' : fmtDay(d.from)) : `<bdi>${fmtDay(d.from)}</bdi> – <bdi>${fmtDay(d.to)}</bdi>`;
+    const now = [
+      ['open', t.general, 'פניות כלליות בלי מטפל'],
+      ['escalated', t.escalatedOpen, 'אצל המנהל'],
+      ['overdue', t.overdue, `ממתינות מעל ${d.overdueHours} שעות`, true],
+    ].map(([v, n, l, warn]) => `<button class="now-b ${warn && n ? 'warn' : ''}" data-goview="${v}"><b>${n}</b> ${l}</button>`).join('<span class="now-sep"></span>');
+    const multi = d.days.length > 1;
     const html = `<div class="mg-wrap">
+      <div class="now-bar"><span class="now-h">כרגע</span>${now}</div>
       <div class="mg-head">
-        <div><h2>ניהול מענה</h2><p class="muted">כמה כל חבר צוות טיפל, מה ממתין אצלו, וכמה זמן לוקח לענות.</p></div>
+        <div><h2>ניהול מענה</h2><p class="muted">הנתונים בעמוד מתייחסים לתקופה שנבחרה: <b class="rng">${label}</b></p></div>
         <div class="range">
           <div class="seg">${PRESETS.map(([k, l]) => `<button class="seg-b ${M.preset === k ? 'on' : ''}" data-preset="${k}">${l}</button>`).join('')}</div>
           ${M.preset === 'custom' ? `<div class="custom"><label>מ-<input type="date" id="r-from" value="${r.from}" max="${d.today}"></label><label>עד<input type="date" id="r-to" value="${r.to}" max="${d.today}"></label></div>` : ''}
         </div>
       </div>
       <div class="kpis panel">
-        ${kpi(d.totals.range, rangeLbl, 'var(--green)')}
-        ${kpi(d.totals.today, 'טופלו היום', 'var(--amber)')}
-        ${kpi(d.totals.general, 'פניות כלליות, בלי מטפל', 'var(--blue)', 'open')}
-        ${kpi(d.totals.escalatedOpen, 'ממתינות אצל המנהל', 'var(--violet)', 'escalated')}
-        ${kpi(d.totals.overdue, `ממתינות מעל ${d.overdueHours} שעות`, 'var(--red)', 'overdue', true)}
+        ${kpi(t.range, 'פניות טופלו', 'ענו בהן או סימנו כטופלות')}
+        ${kpi(t.replies, 'תשובות נשלחו')}
+        ${kpi(fmtDur(t.avgResponseMin), 'זמן מענה ממוצע', 'מהרגע שהלקוח כתב')}
       </div>
       <section class="mg-sec panel flush">
-        <div class="sec-head"><h3>הצוות</h3><span class="sec-note">"טופלה" = פניה שענו בה או סימנו אותה כטופלה באותו יום. לחיצה על שורה פותחת את הפניות.</span></div>
+        <div class="sec-head"><h3>לפי חבר צוות</h3></div>
         <div class="dtbl-wrap"><table class="dtbl">
-          <thead><tr><th>חבר צוות</th><th class="n">טופלו בטווח</th><th class="n">היום</th><th class="n">7 ימים</th><th class="n">תשובות</th>
-            <th class="n">פתוחות</th><th class="n">חוזרות</th><th class="n">ממתינות</th><th class="n">זמן מענה ממוצע</th></tr></thead>
+          <thead><tr><th>חבר צוות</th><th>פניות טופלו</th><th class="n">תשובות</th><th class="n">זמן מענה ממוצע</th><th></th></tr></thead>
           <tbody>${members.map(m => memberRow(m, max)).join('')}</tbody>
         </table></div>
       </section>
-      <section class="mg-sec panel">
-        <div class="sec-head"><h3>טיפול לפי ${d.days.length > 62 ? 'שבועות' : 'ימים'}</h3>
+      ${multi ? `<section class="mg-sec panel">
+        <div class="sec-head"><h3>פניות שטופלו ${d.days.length > 62 ? 'בכל שבוע' : 'בכל יום'}</h3>
           <button class="lnk" id="tbl-toggle">${M.showTable ? 'הצג כגרף' : 'הצג כטבלה'}</button></div>
         ${M.showTable ? dayTable(members) : chart(members)}
-      </section></div>`;
+      </section>` : ''}</div>`;
     if (el.innerHTML !== html) el.innerHTML = html;   // רענון שקט: רק אם משהו השתנה
   }
 
