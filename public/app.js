@@ -10,18 +10,36 @@ const STATUS = { new: 'חדשה', in_progress: 'בטיפול', handled: 'טופ�
 const STATUS_COLOR = { new: 'var(--blue)', in_progress: 'var(--amber)', handled: 'var(--green)', escalated: 'var(--violet)', ignored: '#b5bad0' };
 // צבע קבוע לכל חבר צוות לפי סדר ההוספה (לא לפי דירוג) – פלטה שנבדקה לעיוורון צבעים על הרקע הכהה
 const TEAM_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+// אייקוני קו שקטים (במקום אימוג׳י)
+const ICONS = {
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  ret: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  clip: '<path d="m21 11-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.3-2.3l7.9-7.9"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+};
+const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 const isMgr = () => !!(S.me && S.me.manager);
 // תצוגות לפי תפקיד: [מפתח, שם, מונה]
 function viewTabs() {
   const c = S.counts;
-  if (!isMgr()) return [['open', '📥 פניות כלליות', c.general], ['mine', '🙋 הפניות שלי', c.mine, c.mineReturned]];
-  return [['open', '📥 כל הפתוחות', c.open], ['mine', '🙋 הפניות שלי', c.mine, c.mineReturned], ['escalated', '🗂 הועבר למנהל', c.escalatedOpen],
-    ['overdue', '⏰ ממתינות זמן רב', c.overdue], ['handled', '✅ טופלו', c.handled], ['ignored', '🙈 הוסתרו', c.ignored]];
+  if (!isMgr()) return [['open', 'פניות כלליות', c.general], ['mine', 'הפניות שלי', c.mine, c.mineReturned]];
+  return [['open', 'כל הפתוחות', c.open], ['mine', 'הפניות שלי', c.mine, c.mineReturned], ['escalated', 'הועבר למנהל', c.escalatedOpen],
+    ['overdue', 'ממתינות זמן רב', c.overdue], ['handled', 'טופלו', c.handled], ['ignored', 'הוסתרו', c.ignored]];
 }
 const SUBS = [['open', 'לטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['done', 'טיפלתי']];
 const RANGES = [['', 'הכל'], ['0', 'היום'], ['6', '7 ימים'], ['29', '30 ימים']];
 const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0ea5e9', '#16a36a', '#c2410c'];
-const EVENT_ICON = { take: '🙋', release: '↩️', handled: '✅', reopen: '🔄', escalate: '↗️', categories: '🏷️', ignore: '🙈', reply: '✉️', assign: '👤' };
+
 
 const S = {
   cfg: null, me: null, view: 'open', sub: 'open', member: null, range: '', screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {},
@@ -101,12 +119,7 @@ const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1
 const MB = 1048576, MAX_FILE = 20 * MB, MAX_TOTAL = 24 * MB, MAX_FILES = 10;
 function fileIcon(name, type = '') {
   const ext = (name.split('.').pop() || '').toLowerCase();
-  if (type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'].includes(ext)) return '🖼️';
-  if (ext === 'pdf') return '📕';
-  if (['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
-  if (['doc', 'docx'].includes(ext)) return '📝';
-  if (['zip', 'rar', '7z'].includes(ext)) return '🗜️';
-  return '📄';
+  return ic(type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'].includes(ext) ? 'image' : 'file');
 }
 const filesOf = id => (S.filesBy[id] ||= []);
 function ago(iso) {
@@ -157,11 +170,12 @@ function renderTop() {
   else if (!st.ready) { dot = 'dot wait'; txt = 'טוען מיילים מהתיבה…'; }
   else { txt = `מחובר ל-${S.cfg.inbox} · עודכן ${st.lastSync ? ago(st.lastSync) : ''}`; }
   $('#sync').innerHTML = `<span class="${dot}"></span><span>${esc(txt)}</span>`;
+  $('#sync').title = txt;
   const b = $('#banner');
-  if (st.error) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ ' + st.error; }
-  else if (st.send && st.send.ok === false) { b.hidden = false; b.className = 'banner'; b.textContent = '⚠️ שליחת מיילים לא זמינה כרגע – אפשר לקרוא פניות, אבל תשובות לא יישלחו. ' + (st.send.error || ''); }
-  else if (st.loading && st.loading.total) { b.hidden = false; b.className = 'banner info'; b.textContent = `⏳ טוען מיילים מהתיבה: ${st.loading.done} מתוך ${st.loading.total}…`; }
-  else if (!st.ready) { b.hidden = false; b.className = 'banner info'; b.textContent = '⏳ המערכת טוענת את כל המיילים מהתיבה. זה לוקח רגע בהפעלה הראשונה.'; }
+  if (st.error) { b.hidden = false; b.className = 'banner'; b.textContent = st.error; }
+  else if (st.send && st.send.ok === false) { b.hidden = false; b.className = 'banner'; b.textContent = 'שליחת מיילים לא זמינה כרגע – אפשר לקרוא פניות, אבל תשובות לא יישלחו. ' + (st.send.error || ''); }
+  else if (st.loading && st.loading.total) { b.hidden = false; b.className = 'banner info'; b.textContent = `טוען מיילים מהתיבה: ${st.loading.done} מתוך ${st.loading.total}…`; }
+  else if (!st.ready) { b.hidden = false; b.className = 'banner info'; b.textContent = 'המערכת טוענת את כל המיילים מהתיבה. זה לוקח רגע בהפעלה הראשונה.'; }
   else if (recentImports(st).length) {
     const list = recentImports(st);
     b.hidden = false; b.className = 'banner ' + (list.some(r => r.error) ? '' : 'ok');
@@ -174,8 +188,8 @@ function renderTop() {
 const recentImports = st => (st.imports || []).filter(r => Date.now() - Date.parse(r.at) < 30 * 60e3).slice(0, 4);
 function importLine(r) {
   const what = r.labels && r.labels.length ? ` (${esc(r.labels.join(', '))})` : '';
-  if (r.error) return `⚠️ ייבוא "${esc(r.subject)}" לא בוצע: ${esc(r.error)}`;
-  let t = `📥 יובאו <b>${r.added}</b> הודעות${what}`;
+  if (r.error) return `ייבוא "${esc(r.subject)}" לא בוצע: ${esc(r.error)}`;
+  let t = `יובאו <b>${r.added}</b> הודעות${what}`;
   if (r.dup) t += ` · ${r.dup} כבר היו במערכת ודולגו`;
   if (r.failed) t += ` · ${r.failed} לא נקראו`;
   if (r.unknown && r.unknown.length) t += ` · לא זוהה בנושא: "${esc(r.unknown.join('", "'))}" (יובאו בלי הסיווג הזה)`;
@@ -185,29 +199,33 @@ function importLine(r) {
 function renderStats() {
   const c = S.counts;
   const cards = isMgr() ? [
-    ['open', '', '📥', c.new || 0, 'חדשות – בלי מטפל', 'var(--blue)'],
-    ['open', '', '⏳', c.in_progress || 0, 'בטיפול הצוות', 'var(--amber)'],
-    ['escalated', '', '🗂', c.escalatedOpen || 0, 'אצל המנהל', 'var(--violet)'],
-    ['overdue', '', '⏰', c.overdue || 0, `ממתינות מעל ${S.cfg.overdueHours} שע׳`, 'var(--red)'],
+    ['open', '', 'inbox', c.new || 0, 'חדשות – בלי מטפל', 'var(--blue)'],
+    ['open', '', 'clock', c.in_progress || 0, 'בטיפול הצוות', 'var(--amber)'],
+    ['escalated', '', 'folder', c.escalatedOpen || 0, 'אצל המנהל', 'var(--violet)'],
+    ['overdue', '', 'clock', c.overdue || 0, `ממתינות מעל ${S.cfg.overdueHours} שע׳`, 'var(--red)'],
   ] : [
-    ['open', '', '📥', c.general || 0, 'פניות כלליות', 'var(--blue)'],
-    ['mine', 'open', '🙋', c.mine || 0, 'לטיפול שלי', 'var(--pink)'],
-    ['mine', 'returned', '🔁', c.mineReturned || 0, 'חוזרות אליי', 'var(--amber)'],
-    ['mine', 'done', '✅', c.mineDoneToday || 0, 'טיפלתי היום', 'var(--green)'],
+    ['open', '', 'inbox', c.general || 0, 'פניות כלליות', 'var(--blue)'],
+    ['mine', 'open', 'user', c.mine || 0, 'לטיפול שלי', 'var(--pink)'],
+    ['mine', 'returned', 'ret', c.mineReturned || 0, 'חוזרות אליי', 'var(--amber)'],
+    ['mine', 'done', 'check', c.mineDoneToday || 0, 'טיפלתי היום', 'var(--green)'],
   ];
-  $('#stats').innerHTML = cards.map(([v, sub, ic, n, l, col]) =>
+  $('#stats').innerHTML = cards.map(([v, sub, icn, n, l, col]) =>
     `<div class="stat ${S.screen === 'inbox' && S.view === v && (!sub || S.sub === sub) ? 'on' : ''}" data-view="${v}" data-sub="${sub}" style="--c:${col}">
-      <div class="stat-ic">${ic}</div><div><div class="num">${n}</div><div class="lbl">${l}</div></div></div>`).join('');
+      <div class="stat-ic">${ic(icn)}</div><div><div class="num">${n}</div><div class="lbl">${l}</div></div></div>`).join('');
 }
 
 function renderTabs() {
   const tab = ([k, l, n, hot]) => `<button class="tab ${S.screen === 'inbox' && S.view === k ? 'active' : ''}" data-view="${k}">${l}${hot ? `<span class="hot" title="חוזרות / הועברו אליך">${hot}</span>` : ''}<span class="cnt">${n || 0}</span></button>`;
   $('#tabs').innerHTML = viewTabs().map(tab).join('');
+  // ניווט ראשי של המנהל – בשורה העליונה
   const admin = isMgr();
-  $('#admin-h').hidden = $('#admin-tabs').hidden = !admin;
-  if (admin) $('#admin-tabs').innerHTML = [['stats', '📊 ניהול מענה'], ['team', '👥 ניהול צוות']]
-    .map(([k, l]) => `<button class="tab ${S.screen === k ? 'active' : ''}" data-screen="${k}">${l}</button>`).join('');
-  $('.cats-h').hidden = $('#chips').hidden = S.screen !== 'inbox';
+  $('#main-nav').hidden = !admin;
+  if (admin) {
+    const nav = [['stats', 'ניהול מענה'], ['inbox', 'פניות', S.counts.open], ['team', 'ניהול צוות']]
+      .map(([k, l, n]) => `<button class="nav-b ${S.screen === k ? 'on' : ''}" data-screen="${k}" ${S.screen === k ? 'aria-current="page"' : ''}>${l}${n ? `<span class="nav-n">${n}</span>` : ''}</button>`).join('');
+    if ($('#main-nav').innerHTML !== nav) $('#main-nav').innerHTML = nav;
+  }
+  $('#stats').hidden = S.screen !== 'inbox';
 }
 
 function renderChips() {
@@ -225,7 +243,7 @@ function renderListHead() {
   el.hidden = false;
   const sc = S.subCounts || {};
   let html = '';
-  if (S.view === 'member') html += `<div class="lh-who">${avatar(teamName(S.member), teamColor(S.member), 'sm team')}<b>הפניות של ${esc(teamName(S.member))}</b><button class="btn ghost sm" data-screen="stats">→ חזרה לניהול מענה</button></div>`;
+  if (S.view === 'member') html += `<div class="lh-who">${avatar(teamName(S.member), teamColor(S.member), 'sm team')}<b>הפניות של ${esc(teamName(S.member))}</b><button class="btn ghost sm" data-screen="stats">חזרה לניהול מענה</button></div>`;
   if (personal) html += `<div class="seg">${SUBS.map(([k, l]) => `<button class="seg-b ${S.sub === k ? 'on' : ''} ${k === 'returned' && sc.returned ? 'warm' : ''} ${k === 'overdue' && sc.overdue ? 'alert' : ''}" data-sub="${k}">${l}<span>${sc[k] || 0}</span></button>`).join('')}</div>`;
   if (ranged) html += `<div class="seg small">${RANGES.map(([k, l]) => `<button class="seg-b ${S.range === k ? 'on' : ''}" data-range="${k}">${l}</button>`).join('')}</div>`;
   el.innerHTML = html;
@@ -235,8 +253,8 @@ function renderListHead() {
 function renderNotice() {
   const c = S.counts, el = $('#notice');
   const parts = [];
-  if (c.mineReturned) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">🔁</span><span>יש לך <b>${c.mineReturned}</b> ${c.mineReturned === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
-  if (c.mineOverdue) parts.push(`<button class="nt alert" data-view="mine" data-sub="overdue"><span class="nt-ic">⏰</span><span><b>${c.mineOverdue}</b> מהפניות שלך ממתינות למענה יותר מ-${S.cfg.overdueHours} שעות</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (c.mineReturned) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('ret')}</span><span>יש לך <b>${c.mineReturned}</b> ${c.mineReturned === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (c.mineOverdue) parts.push(`<button class="nt alert" data-view="mine" data-sub="overdue"><span class="nt-ic">${ic('clock')}</span><span><b>${c.mineOverdue}</b> מהפניות שלך ממתינות למענה יותר מ-${S.cfg.overdueHours} שעות</span><span class="nt-go">לצפייה ←</span></button>`);
   el.hidden = !parts.length;
   el.innerHTML = parts.join('');
 }
@@ -259,7 +277,7 @@ function renderList() {
       : (S.view === 'mine' || S.view === 'member') && S.sub !== 'done' ? (S.sub === 'open' ? 'אין פניות שממתינות לטיפול' : 'אין כאן כלום כרגע')
       : 'לא נמצאו פניות';
     const good = clear && S.view !== 'handled' && S.sub !== 'done';
-    el.innerHTML = `<li class="empty-list"><div class="big">${good ? '🎉' : '🔍'}</div>${msg}</li>`;
+    el.innerHTML = `<li class="empty-list"><div class="big">${ic(good ? 'check' : 'search')}</div>${msg}</li>`;
     S._listHtml = null;
     return;
   }
@@ -272,13 +290,13 @@ function renderList() {
         <div class="inq-snip">${esc(it.snippet)}</div>
         <div class="inq-meta">
           <span class="pill ${it.status}">${esc(statusText(it))}</span>
-          ${it.assigned ? '<span class="pill assigned">📨 הועבר אליך</span>' : ''}
-          ${it.returned ? '<span class="pill returned">🔁 הלקוח חזר</span>' : ''}
-          ${it.overdue ? `<span class="pill overdue">⏰ ${waitText(it.lastIncoming)}</span>` : ''}
+          ${it.assigned ? '<span class="pill assigned">הועבר אליך</span>' : ''}
+          ${it.returned ? '<span class="pill returned">הלקוח חזר</span>' : ''}
+          ${it.overdue ? `<span class="pill overdue">${waitText(it.lastIncoming)}</span>` : ''}
           ${ownerTag(it)}
           ${it.categories.map(catPill).join('')}
-          ${it.hasAttachments ? '<span class="mini">📎</span>' : ''}
-          ${it.messageCount > 1 ? `<span class="mini">💬 ${it.messageCount}</span>` : ''}
+          ${it.hasAttachments ? `<span class="mini">${ic('clip')}</span>` : ''}
+          ${it.messageCount > 1 ? `<span class="mini">${ic('chat')} ${it.messageCount}</span>` : ''}
         </div>
       </div>
     </li>`).join('');
@@ -335,10 +353,10 @@ function attList(atts) {
   return `<div class="atts">
     ${imgs.map(a => `<a class="att-img" href="${url(a)}?view=1" target="_blank" rel="noopener" title="${esc(a.name)} – לחצו לפתיחה בגודל מלא">
       <img src="${url(a)}?view=1" alt="${esc(a.name)}" loading="lazy"></a>`).join('')}
-    ${files.map(a => !a.id ? `<span class="att">📎 ${esc(a.name)}</span>`
+    ${files.map(a => !a.id ? `<span class="att">${ic('clip')} ${esc(a.name)}</span>`
       : VIEW_RE.test(a.type || '')
-        ? `<span class="att"><a href="${url(a)}?view=1" target="_blank" rel="noopener">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a><a class="att-dl" href="${url(a)}" title="הורדה">⬇</a></span>`
-        : `<a class="att" href="${url(a)}">📎 ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a>`).join('')}
+        ? `<span class="att"><a href="${url(a)}?view=1" target="_blank" rel="noopener">${ic('clip')} ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a><a class="att-dl" href="${url(a)}" title="הורדה">${ic('download')}</a></span>`
+        : `<a class="att" href="${url(a)}">${ic('clip')} ${esc(a.name)} <span class="sz">${fmtSize(a.size)}</span></a>`).join('')}
   </div>`;
 }
 // ג'ימייל כותב "[image: image.png]" בגרסת הטקסט של תמונה מודבקת – מיותר כשהתמונה עצמה מוצגת
@@ -353,10 +371,10 @@ function timeline(d) {
     ...d.messages.map(m => ({ at: m.date, rank: 1, html: bubble(m, m === d.messages.find(x => x.quoted)) })),
     ...d.events.filter(e => e.action !== 'reply').map(e => {
       const c = e.userKey ? teamColor(e.userKey) : '#8a90ab';
-      return { at: e.at, rank: e.action === 'take' ? 0 : 2, html: `<div class="event" style="--c:${c}">${EVENT_ICON[e.action] || '•'} <b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
+      return { at: e.at, rank: e.action === 'take' ? 0 : 2, html: `<div class="event" style="--c:${c}"><i class="ev-dot"></i><b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
     }),
     ...(d.notes || []).map(n => ({ at: n.at, rank: 3, html: `<div class="note" style="--c:${teamColor(n.userKey)}">
-      <div class="n-head"><span class="n-tag">${n.kind === 'escalate' ? '↗ הערה בהעברה למנהל' : '📝 הערה פנימית'}</span><b>${esc(n.user)}</b><span class="n-time">${hm(n.at)}</span>
+      <div class="n-head"><span class="n-tag">${n.kind === 'escalate' ? 'הערה בהעברה למנהל' : 'הערה פנימית'}</span><b>${esc(n.user)}</b><span class="n-time">${hm(n.at)}</span>
         ${n.canDelete ? `<button class="n-del" data-note-del="${esc(n.id)}" title="מחיקת ההערה">✕</button>` : ''}</div>
       <div class="n-body">${esc(n.text)}</div>
       <div class="n-foot">לא נשלחה לתורם</div></div>` })),
@@ -376,13 +394,13 @@ function detailActions(d) {
   const esc_ = d.status === 'escalated';
   const mine = (d.status === 'in_progress' || esc_) && d.assignee === me;
   const B = {
-    take: l => `<button class="btn primary" data-act="take">🙋 ${l || 'אני מטפל/ת בזה'}</button>`,
-    handled: `<button class="btn green" data-act="handled">✓ סמן כטופל</button>`,
-    escalate: `<button class="btn violet" data-act="escalate">↗ העבר למנהל</button>`,
-    assign: `<button class="btn violet" data-act="assign">👤 העבר לחבר צוות</button>`,
-    reopen: l => `<button class="btn amber" data-act="reopen">🔄 ${l || 'החזר לפניות הכלליות'}</button>`,
-    release: `<button class="btn ghost sm" data-act="release">↩ שחרר</button>`,
-    ignore: `<button class="btn ghost sm" data-act="ignore" title="למשל: פרסומת או הודעת מערכת">🙈 לא פניה</button>`,
+    take: l => `<button class="btn primary" data-act="take">${l || 'אני מטפל/ת בזה'}</button>`,
+    handled: `<button class="btn green" data-act="handled">סמן כטופל</button>`,
+    escalate: `<button class="btn violet" data-act="escalate">העבר למנהל</button>`,
+    assign: `<button class="btn violet" data-act="assign">העבר לחבר צוות</button>`,
+    reopen: l => `<button class="btn amber" data-act="reopen">${l || 'החזר לפניות הכלליות'}</button>`,
+    release: `<button class="btn ghost sm" data-act="release">שחרר</button>`,
+    ignore: `<button class="btn ghost sm" data-act="ignore" title="למשל: פרסומת או הודעת מערכת">לא פניה</button>`,
   };
   // חבר צוות יכול להעביר רק למנהל. מנהל מעביר לכל חבר צוות ומחזיר לכללי.
   const pass = mgr ? B.assign : B.escalate;
@@ -398,7 +416,7 @@ function detailActions(d) {
 // הערות פנימיות – לא נשלחות לתורם
 function notesBox(d) {
   return `<div class="notes-box">
-    <div class="nb-head"><span>📝 הערה פנימית</span><span class="nb-who">רואים: את/ה, המנהל, ומי שהפניה אצלו · לא נשלחת לתורם</span></div>
+    <div class="nb-head"><span>הערה פנימית</span><span class="nb-who">רואים: את/ה, המנהל, ומי שהפניה אצלו · לא נשלחת לתורם</span></div>
     <div class="nb-row">
       <textarea id="note-text" rows="1" maxlength="2000" placeholder="מה עשיתי, למה, מה עוד צריך…">${esc(S.noteDraft[d.id] || '')}</textarea>
       <button type="button" class="btn sm note-btn" id="note-add">הוספה</button>
@@ -408,7 +426,7 @@ function notesBox(d) {
 
 function renderDetail() {
   const d = S.detail, el = $('#detail');
-  if (!d) { el.innerHTML = `<div class="empty-detail"><div class="big">💬</div><div>בחרו פניה מהרשימה כדי לראות את כל השיחה</div></div>`; return; }
+  if (!d) { el.innerHTML = `<div class="empty-detail"><div class="big">${ic('chat')}</div><div>בחרו פניה מהרשימה כדי לראות את כל השיחה</div></div>`; return; }
   const me = S.me.key;
   const esc_ = d.status === 'escalated';
   const mine = (d.status === 'in_progress' || esc_) && d.assignee === me;
@@ -423,7 +441,7 @@ function renderDetail() {
   let composer;
   if (mine) composer = composerHtml(d);
   else if (d.status === 'new' || (esc_ && !d.assignee)) composer = `<div class="locked">כדי לענות, לחצו <b>"אני מטפל/ת בזה"</b>. כך אף אחד אחר לא יענה במקביל.</div>`;
-  else if (other) composer = `<div class="locked">🔒 <b>${esc(d.assigneeName)}</b> מטפל/ת בפניה הזו. אפשר לקרוא, אבל לא לענות.</div>`;
+  else if (other) composer = `<div class="locked">${ic('lock')} <b>${esc(d.assigneeName)}</b> מטפל/ת בפניה הזו. אפשר לקרוא, אבל לא לענות.</div>`;
   else composer = '';
 
   el.innerHTML = `
@@ -439,13 +457,13 @@ function renderDetail() {
       <div class="d-subj">${esc(d.subject)}</div>
       <div class="d-state">
         <span class="pill ${d.status}">${esc(d.status === 'escalated' ? 'אצל המנהל · ' + (MGR_LABEL[d.mgr] || '') : STATUS[d.status])}</span>
-        ${d.assigned ? '<span class="pill assigned">📨 הועבר אליך ע״י המנהל</span>' : ''}
-        ${d.returned ? '<span class="pill returned">🔁 הלקוח כתב שוב אחרי שענינו</span>' : ''}
-        ${d.overdue ? `<span class="pill overdue">⏰ ${waitText(d.lastIncoming)}</span>` : ''}
+        ${d.assigned ? '<span class="pill assigned">הועבר אליך ע״י המנהל</span>' : ''}
+        ${d.returned ? '<span class="pill returned">הלקוח כתב שוב אחרי שענינו</span>' : ''}
+        ${d.overdue ? `<span class="pill overdue">${waitText(d.lastIncoming)}</span>` : ''}
         ${owner}
       </div>
       ${actions ? `<div class="d-actions">${actions}</div>` : ''}
-      <div class="d-cats"><span class="lbl">🏷️ קטגוריה:</span>${S.cfg.categories.map(c =>
+      <div class="d-cats"><span class="lbl">קטגוריה:</span>${S.cfg.categories.map(c =>
         `<button class="cat-toggle ${d.categories.includes(c.key) ? 'on' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}</button>`).join('')}</div>
       ${notesBox(d)}
     </div>
@@ -475,24 +493,24 @@ function composerHtml(d) {
   return `
     <form class="composer" id="composer" novalidate>
       <div class="c-head">
-        <label for="reply-to">✉️ תשובה אל</label>
+        <label for="reply-to">תשובה אל</label>
         <input type="text" inputmode="email" id="reply-to" class="c-to" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(toOf(d))}" placeholder="name@example.com, other@example.com" title="אפשר לשנות את הנמען, או להוסיף כתובות נוספות מופרדות בפסיק">
-        <button type="button" class="c-to-reset" id="reply-to-reset" title="חזרה לכתובת של הפונה" ${toChanged(d) ? '' : 'hidden'}>↺ חזרה לפונה</button>
+        <button type="button" class="c-to-reset" id="reply-to-reset" title="חזרה לכתובת של הפונה" ${toChanged(d) ? '' : 'hidden'}>חזרה לפונה</button>
         <span>· תישלח במייל באותה שרשרת · לכמה נמענים: הפרידו בפסיק</span>
       </div>
       <div class="c-to-note" id="reply-to-note" ${toChanged(d) ? '' : 'hidden'}>${esc(toNote(d))}</div>
-      ${blocked ? `<div class="c-warn">⚠️ שליחת מיילים לא זמינה כרגע בשרת, ולכן התשובה כנראה לא תישלח. אפשר לכתוב – הטיוטה נשמרת.</div>` : ''}
+      ${blocked ? `<div class="c-warn">שליחת מיילים לא זמינה כרגע בשרת, ולכן התשובה כנראה לא תישלח. אפשר לכתוב – הטיוטה נשמרת.</div>` : ''}
       <div class="c-box" id="c-box">
         <textarea id="reply-body" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
         <div class="files" id="files"></div>
         <div class="c-foot">
           <span class="c-hint">אפשר לגרור קבצים לכאן · Ctrl+Enter לשליחה</span>
           <div class="c-btns">
-            <label class="btn ghost sm file-btn">📎 צירוף קובץ<input type="file" id="file-input" multiple hidden></label>
-            <button class="btn primary" type="submit" id="send-btn">שליחה ➤</button>
+            <label class="btn ghost sm file-btn">${ic('clip')} צירוף קובץ<input type="file" id="file-input" multiple hidden></label>
+            <button class="btn primary" type="submit" id="send-btn">שליחה</button>
           </div>
         </div>
-        <div class="drop-hint">📎 שחררו כאן כדי לצרף</div>
+        <div class="drop-hint">${ic('clip')} שחררו כאן כדי לצרף</div>
       </div>
       <div id="send-state"></div>
     </form>`;
@@ -537,7 +555,7 @@ function renderSendState(p) {
   if (box) box.classList.toggle('busy', busy);
   if (ta) ta.readOnly = busy;
   const ti = $('#reply-to'); if (ti) ti.readOnly = busy;
-  if (btn) { btn.disabled = busy; btn.innerHTML = busy ? '<span class="spin"></span> שולח…' : 'שליחה ➤'; }
+  if (btn) { btn.disabled = busy; btn.innerHTML = busy ? '<span class="spin"></span> שולח…' : 'שליחה'; }
   if (fb) fb.classList.toggle('disabled', busy);
   if (busy) {
     p = p || S.sendProgress || { stage: 'send' };
@@ -552,10 +570,10 @@ function renderSendState(p) {
     </div>`;
   } else if (S.sendErr[id]) {
     el.innerHTML = `<div class="send-box err" role="alert">
-      <div class="se-title">✕ התשובה לא נשלחה</div>
+      <div class="se-title">התשובה לא נשלחה</div>
       <div class="se-msg">${esc(S.sendErr[id])}</div>
       <div class="se-foot">הטקסט והקבצים נשמרו – לא צריך לכתוב מחדש.
-        <button type="button" class="btn sm red" id="retry-btn">↻ נסו לשלוח שוב</button>
+        <button type="button" class="btn sm red" id="retry-btn">נסו לשלוח שוב</button>
         <button type="button" class="btn ghost sm" id="err-x">סגירה</button></div>
     </div>`;
   } else if (S.sentOk[id]) {
@@ -606,7 +624,7 @@ async function sendReply() {
     });
     S.sending = null; S.sendProgress = null;
     delete S.drafts[id]; delete S.toBy[id]; S.filesBy[id] = []; S.sentOk[id] = to;
-    toast(`התשובה נשלחה ל-${other ? to : d.fromName} ✓`, 'ok');
+    toast(`התשובה נשלחה ל-${other ? to : d.fromName}`, 'ok');
     if (S.detail && S.detail.id === id) { S.detail = res; renderDetail(); }
     loadList().catch(() => {});
   } catch (err) {
@@ -638,7 +656,7 @@ function showScreen(name) {
   $('#manage').hidden = inbox;
   $('#layout').classList.remove('show-detail');
   renderTabs(); renderStats();
-  if (inbox) { renderChips(); renderListHead(); renderList(); }
+  if (inbox) { renderChips(); renderListHead(); renderList(); loadList().catch(() => {}); }
   else window.Manage && Manage.open(name);
 }
 
@@ -668,7 +686,7 @@ async function act(action) {
   if (action === 'back') { $('#layout').classList.remove('show-detail'); return; }
   if (action === 'escalate') { $('#esc-note').value = ''; $('#dlg-escalate').returnValue = ''; $('#dlg-escalate').showModal(); return; }
   if (action === 'assign') return openAssign();
-  const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן כטופל ✓', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
+  const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן כטופל', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
   if (action === 'release' && ($('#reply-body')?.value.trim() || filesOf(d.id).length) && !confirm('יש טיוטה שלא נשלחה. לשחרר את הפניה בכל זאת? (הטיוטה תישמר)')) return;
   const clicked = document.querySelector(`[data-act="${action}"]`);
   document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
@@ -724,7 +742,7 @@ function bindApp() {
   $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
   $('#stats').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
   $('#notice').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
-  $('#admin-tabs').addEventListener('click', e => { const b = e.target.closest('[data-screen]'); if (b) showScreen(b.dataset.screen); });
+  $('#main-nav').addEventListener('click', e => { const b = e.target.closest('[data-screen]'); if (b && b.dataset.screen !== S.screen) showScreen(b.dataset.screen); });
   $('#list-head').addEventListener('click', e => {
     const sc = e.target.closest('[data-screen]'); if (sc) return showScreen(sc.dataset.screen);
     const sb = e.target.closest('[data-sub]'); if (sb) return setView(S.view, sb.dataset.sub, S.member);
@@ -788,7 +806,7 @@ function bindApp() {
     document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
     try {
       S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/escalate`, { method: 'POST', json: { note: $('#esc-note').value } });
-      t.set('הפניה הועברה למנהל ✓', 'ok');
+      t.set('הפניה הועברה למנהל', 'ok');
       if (S.detail.hidden) { S.detail = null; S.selId = null; $('#layout').classList.remove('show-detail'); }
       await loadList(); renderDetail();
     } catch (e) { t.set('ההעברה למנהל נכשלה: ' + e.message, 'err'); document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = false)); }
@@ -800,7 +818,7 @@ function bindApp() {
     const t = toast(`מעביר ל${teamName(to)}…`, 'wait');
     try {
       S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/assign`, { method: 'POST', json: { to } });
-      t.set(`הפניה הועברה ל${teamName(to)} ✓`, 'ok'); await loadList(); renderDetail();
+      t.set(`הפניה הועברה ל${teamName(to)}`, 'ok'); await loadList(); renderDetail();
     } catch (e) { t.set(e.message, 'err'); }
   });
 
@@ -811,7 +829,7 @@ function bindApp() {
     e.preventDefault();
     try {
       await api('/me/password', { method: 'POST', json: { old: $('#p-old').value, password: $('#p-new').value } });
-      $('#dlg-pass').close(); toast('הסיסמה הוחלפה ✓', 'ok');
+      $('#dlg-pass').close(); toast('הסיסמה הוחלפה', 'ok');
     } catch (err) { $('#p-err').textContent = err.message; }
   });
 
@@ -829,6 +847,7 @@ async function startApp() {
   $('#me-avatar').outerHTML = avatar(S.me.name, teamColor(S.me.key), 'sm team').replace('<span', '<span id="me-avatar"');
   if (!started) { bindApp(); started = true; }
   renderDetail();
+  if (isMgr() && S.screen === 'inbox') showScreen('stats');   // הדף הראשי של המנהל: ניהול מענה
   loadList().catch(err => toast(err.message, 'err'));
   setInterval(async () => {
     if (document.hidden || document.querySelector('dialog[open]') || $('#app').hidden) return;

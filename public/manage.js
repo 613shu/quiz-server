@@ -27,40 +27,28 @@
     M.data = await api(`/stats?from=${r.from}&to=${r.to}`);
   }
 
-  function kpi(ic, n, l, col, view, extra = '') {
-    return `<button class="kpi" style="--c:${col}" ${view ? `data-goview="${view}"` : 'disabled'}>
-      <span class="kpi-ic">${ic}</span><span class="kpi-n" data-count="${n}">${n}</span><span class="kpi-l">${l}</span>${extra}</button>`;
+  function kpi(n, l, col, view, warn) {
+    return `<button class="kpi ${warn && n ? 'warn' : ''}" style="--c:${col}" ${view ? `data-goview="${view}"` : 'disabled'}>
+      <span class="kpi-n">${n}</span><span class="kpi-l">${l}</span></button>`;
   }
 
-  function memberCard(m, max) {
+  // שורה בטבלת הצוות – לחיצה על השורה פותחת את הפניות של אותו חבר צוות
+  function memberRow(m, max) {
     const c = teamColor(m.key);
-    const days = M.data.days.slice(-30);
-    const peak = Math.max(1, ...days.map(d => m.perDay[d] || 0));
-    const spark = days.map(d => `<i style="height:${Math.max(6, ((m.perDay[d] || 0) / peak) * 100)}%" class="${m.perDay[d] ? '' : 'z'}" title="${fmtDay(d)}: ${m.perDay[d] || 0}"></i>`).join('');
     const share = max ? Math.round((m.range / max) * 100) : 0;
-    return `<article class="mcard ${m.deleted ? 'gone' : ''}" style="--c:${c}" data-member="${esc(m.key)}" tabindex="0">
-      <div class="mc-top">
-        ${avatar(m.name, c, 'lg team')}
-        <div class="mc-who"><div class="mc-name">${esc(m.name)}</div>
-          <div class="mc-role">${m.deleted ? 'הוסר/ה מהצוות' : ROLE[m.role] || ''}</div></div>
-        <div class="mc-big"><span class="mc-n" data-count="${m.range}">${m.range}</span><span class="mc-l">טופלו בטווח</span></div>
-      </div>
-      <div class="mc-bar"><span style="width:${share}%"></span></div>
-      <div class="mc-periods">
-        <div><b>${m.today}</b><span>היום</span></div>
-        <div><b>${m.week}</b><span>7 ימים</span></div>
-        <div><b>${m.month}</b><span>30 ימים</span></div>
-        <div><b>${m.replies}</b><span>תשובות בטווח</span></div>
-      </div>
-      <div class="mc-spark" aria-hidden="true">${spark}</div>
-      <div class="mc-chips">
-        <button class="mc-chip" data-member="${esc(m.key)}" data-sub="open">📂 פתוחות <b>${m.open}</b></button>
-        <button class="mc-chip ${m.returned ? 'warm' : ''}" data-member="${esc(m.key)}" data-sub="returned">🔁 חוזרות <b>${m.returned}</b></button>
-        <button class="mc-chip ${m.overdue ? 'alert' : ''}" data-member="${esc(m.key)}" data-sub="overdue">⏰ ממתינות <b>${m.overdue}</b></button>
-        <button class="mc-chip" data-member="${esc(m.key)}" data-sub="done">✅ סה״כ טופלו <b>${m.doneTotal}</b></button>
-      </div>
-      <div class="mc-foot"><span title="מהרגע שהלקוח כתב ועד התשובה, בממוצע">⏱ זמן מענה ממוצע: <b>${fmtDur(m.avgResponseMin)}</b></span><span class="mc-go">לפניות ←</span></div>
-    </article>`;
+    const nb = (sub, n, cls = '') => `<button class="num-b ${n ? cls : 'zero'}" data-member="${esc(m.key)}" data-sub="${sub}">${n}</button>`;
+    return `<tr class="go ${m.deleted ? 'gone' : ''}" style="--c:${c}" data-member="${esc(m.key)}" tabindex="0">
+      <td><div class="who"><span class="who-dot"></span><div><div class="who-name">${esc(m.name)}</div>
+        <div class="who-sub">${m.deleted ? 'הוסר/ה מהצוות' : ROLE[m.role] || ''}</div></div></div></td>
+      <td class="n"><span class="big-n">${m.range}</span><span class="share" style="margin-inline:auto"><i style="width:${share}%"></i></span></td>
+      <td class="n">${m.today}</td>
+      <td class="n">${m.week}</td>
+      <td class="n">${m.replies}</td>
+      <td class="n">${nb('open', m.open)}</td>
+      <td class="n">${nb('returned', m.returned, 'warm')}</td>
+      <td class="n">${nb('overdue', m.overdue, 'alert')}</td>
+      <td class="n">${fmtDur(m.avgResponseMin)}</td>
+    </tr>`;
   }
 
   // עמודות יומיות מוערמות לפי חבר צוות (מעל 62 ימים – לפי שבועות)
@@ -117,38 +105,36 @@
     const r = rangeParams();
     const members = d.members;
     const max = Math.max(0, ...members.map(m => m.range));
-    el.innerHTML = `
+    const rangeLbl = d.from === d.to ? 'טופלו בטווח' : `טופלו <bdi>${fmtDay(d.from)}</bdi>–<bdi>${fmtDay(d.to)}</bdi>`;
+    const html = `<div class="mg-wrap">
       <div class="mg-head">
-        <div><h2>📊 ניהול מענה</h2><p class="muted">כמה כל חבר צוות טיפל, מה ממתין אצלו, וכמה זמן לוקח לענות. "טופלה" = פניה שענו בה או סימנו אותה כטופלה באותו יום.</p></div>
+        <div><h2>ניהול מענה</h2><p class="muted">כמה כל חבר צוות טיפל, מה ממתין אצלו, וכמה זמן לוקח לענות.</p></div>
         <div class="range">
           <div class="seg">${PRESETS.map(([k, l]) => `<button class="seg-b ${M.preset === k ? 'on' : ''}" data-preset="${k}">${l}</button>`).join('')}</div>
           ${M.preset === 'custom' ? `<div class="custom"><label>מ-<input type="date" id="r-from" value="${r.from}" max="${d.today}"></label><label>עד<input type="date" id="r-to" value="${r.to}" max="${d.today}"></label></div>` : ''}
         </div>
       </div>
-      <div class="kpis">
-        ${kpi('✅', d.totals.range, d.from === d.to ? 'טופלו בטווח שנבחר' : `טופלו מ-<bdi>${fmtDay(d.from)}</bdi> עד <bdi>${fmtDay(d.to)}</bdi>`, 'var(--green)')}
-        ${kpi('☀️', d.totals.today, 'טופלו היום', 'var(--amber)')}
-        ${kpi('📥', d.totals.general, 'בפניות הכלליות – בלי מטפל', 'var(--blue)', 'open')}
-        ${kpi('🗂', d.totals.escalatedOpen, 'ממתינות אצל המנהל', 'var(--violet)', 'escalated')}
-        ${kpi('⏰', d.totals.overdue, `ממתינות מעל ${d.overdueHours} שעות`, 'var(--red)', 'overdue')}
+      <div class="kpis panel">
+        ${kpi(d.totals.range, rangeLbl, 'var(--green)')}
+        ${kpi(d.totals.today, 'טופלו היום', 'var(--amber)')}
+        ${kpi(d.totals.general, 'פניות כלליות, בלי מטפל', 'var(--blue)', 'open')}
+        ${kpi(d.totals.escalatedOpen, 'ממתינות אצל המנהל', 'var(--violet)', 'escalated')}
+        ${kpi(d.totals.overdue, `ממתינות מעל ${d.overdueHours} שעות`, 'var(--red)', 'overdue', true)}
       </div>
-      <section class="mg-sec"><h3>הצוות</h3><div class="mcards">${members.map(m => memberCard(m, max)).join('')}</div></section>
+      <section class="mg-sec panel flush">
+        <div class="sec-head"><h3>הצוות</h3><span class="sec-note">"טופלה" = פניה שענו בה או סימנו אותה כטופלה באותו יום. לחיצה על שורה פותחת את הפניות.</span></div>
+        <div class="dtbl-wrap"><table class="dtbl">
+          <thead><tr><th>חבר צוות</th><th class="n">טופלו בטווח</th><th class="n">היום</th><th class="n">7 ימים</th><th class="n">תשובות</th>
+            <th class="n">פתוחות</th><th class="n">חוזרות</th><th class="n">ממתינות</th><th class="n">זמן מענה ממוצע</th></tr></thead>
+          <tbody>${members.map(m => memberRow(m, max)).join('')}</tbody>
+        </table></div>
+      </section>
       <section class="mg-sec panel">
         <div class="sec-head"><h3>טיפול לפי ${d.days.length > 62 ? 'שבועות' : 'ימים'}</h3>
-          <button class="btn ghost sm" id="tbl-toggle">${M.showTable ? '📊 הצג גרף' : '🗒 הצג כטבלה'}</button></div>
+          <button class="lnk" id="tbl-toggle">${M.showTable ? 'הצג כגרף' : 'הצג כטבלה'}</button></div>
         ${M.showTable ? dayTable(members) : chart(members)}
-      </section>`;
-    countUp(el);
-  }
-
-  // מונים שעולים בעדינות בכניסה למסך
-  function countUp(root) {
-    root.querySelectorAll('[data-count]').forEach(n => {
-      const to = +n.dataset.count; if (!to) return;
-      const t0 = performance.now(), dur = 600;
-      const stepF = t => { const p = Math.min(1, (t - t0) / dur); n.textContent = Math.round(to * (1 - Math.pow(1 - p, 3))); if (p < 1) requestAnimationFrame(stepF); };
-      requestAnimationFrame(stepF);
-    });
+      </section></div>`;
+    if (el.innerHTML !== html) el.innerHTML = html;   // רענון שקט: רק אם משהו השתנה
   }
 
   // ---------- ניהול צוות ----------
@@ -162,39 +148,44 @@
     const act = M.team.filter(u => !u.deleted), del = M.team.filter(u => u.deleted);
     const row = u => {
       const s = M.teamStats[u.key] || {};
-      const c = teamColor(u.key);
-      return `<article class="ucard" style="--c:${c}">
-        ${avatar(u.name, c, 'lg team')}
-        <div class="u-main">
-          <div class="u-name">${esc(u.name)}${u.key === S.me.key ? ' <span class="me-b">אני</span>' : ''}</div>
-          <div class="u-meta"><span class="role-b ${u.role}">${ROLE[u.role]}</span>${u.email ? `<span dir="ltr">${esc(u.email)}</span>` : '<span class="muted">אין מייל</span>'}</div>
-          <div class="u-stats"><span>📂 ${s.open || 0} פתוחות</span><span>✅ ${s.month || 0} טופלו ב-30 יום</span></div>
-        </div>
-        <div class="u-acts">
-          <button class="btn ghost sm" data-uedit="${esc(u.key)}">✏️ עריכה</button>
-          <button class="btn ghost sm" data-upass="${esc(u.key)}">🔑 סיסמה</button>
-          ${u.key !== S.me.key ? `<button class="btn ghost sm danger" data-udel="${esc(u.key)}">🗑 הסרה</button>` : ''}
-        </div>
-      </article>`;
+      return `<tr style="--c:${teamColor(u.key)}">
+        <td><div class="who"><span class="who-dot"></span><span class="who-name">${esc(u.name)}</span>${u.key === S.me.key ? '<span class="me-b">אני</span>' : ''}</div></td>
+        <td><span class="role-t ${u.role}">${ROLE[u.role]}</span></td>
+        <td>${u.phone ? `<span class="ltr">${esc(u.phone)}</span>` : '<span class="none">—</span>'}</td>
+        <td>${u.email ? `<span class="ltr">${esc(u.email)}</span>` : '<span class="none">—</span>'}</td>
+        <td class="n">${s.open || 0}</td>
+        <td class="n">${s.month || 0}</td>
+        <td><div class="row-acts">
+          <button class="lnk" data-uedit="${esc(u.key)}">עריכה</button>
+          <button class="lnk" data-upass="${esc(u.key)}">סיסמה</button>
+          ${u.key !== S.me.key ? `<button class="lnk danger" data-udel="${esc(u.key)}">הסרה</button>` : ''}
+        </div></td>
+      </tr>`;
     };
-    el.innerHTML = `
+    el.innerHTML = `<div class="mg-wrap">
       <div class="mg-head">
-        <div><h2>👥 ניהול צוות</h2><p class="muted">מי נכנס לדשבורד ומה התפקיד שלו. מנהל רואה הכול, כולל "הועבר למנהל" ומסכי הניהול. חבר צוות רואה את הפניות הכלליות ואת הפניות שלו.</p></div>
-        <button class="btn primary" id="u-add">➕ הוספת חבר צוות</button>
+        <div><h2>ניהול צוות</h2><p class="muted">מי נכנס לדשבורד ומה התפקיד שלו. מנהל רואה הכול, כולל "הועבר למנהל" ומסכי הניהול. חבר צוות רואה את הפניות הכלליות ואת הפניות שלו.</p></div>
+        <button class="btn primary" id="u-add">הוספת חבר צוות</button>
       </div>
-      <div class="ucards">${act.map(row).join('')}</div>
+      <section class="mg-sec panel flush"><div class="dtbl-wrap"><table class="dtbl">
+        <thead><tr><th>שם</th><th>תפקיד</th><th>טלפון</th><th>מייל</th><th class="n">פתוחות</th><th class="n">טופלו ב-30 יום</th><th></th></tr></thead>
+        <tbody>${act.map(row).join('')}</tbody>
+      </table></div></section>
       ${del.length ? `<details class="gone-list"><summary>הוסרו מהצוות (${del.length})</summary>
-        ${del.map(u => `<div class="gone-row">${avatar(u.name, teamColor(u.key), 'sm team')}<span>${esc(u.name)}</span><button class="btn ghost sm" data-urestore="${esc(u.key)}">↩ החזרה לצוות</button></div>`).join('')}
-      </details>` : ''}`;
+        <div class="panel dtbl-wrap"><table class="dtbl"><tbody>${del.map(u => `<tr style="--c:${teamColor(u.key)}">
+          <td><div class="who"><span class="who-dot"></span><span class="who-name">${esc(u.name)}</span></div></td>
+          <td>${u.email ? `<span class="ltr">${esc(u.email)}</span>` : ''}</td>
+          <td><div class="row-acts"><button class="lnk" data-urestore="${esc(u.key)}">החזרה לצוות</button></div></td></tr>`).join('')}</tbody></table></div>
+      </details>` : ''}</div>`;
   }
 
   function openUser(key, passOnly) {
     M.editKey = key || null;
     const u = key ? M.team.find(x => x.key === key) : null;
     $('#user-title').textContent = !u ? 'חבר צוות חדש' : passOnly ? `סיסמה חדשה ל${u.name}` : `עריכת ${u.name}`;
-    $('#u-name').value = u ? u.name : ''; $('#u-role').value = u ? u.role : 'member'; $('#u-email').value = u ? u.email : ''; $('#u-pass').value = '';
+    $('#u-name').value = u ? u.name : ''; $('#u-role').value = u ? u.role : 'member'; $('#u-email').value = u ? u.email : ''; $('#u-phone').value = u ? (u.phone || '') : ''; $('#u-pass').value = '';
     $('#u-pass-l').textContent = !u ? 'סיסמה (6 תווים לפחות)' : passOnly ? 'סיסמה חדשה (6 תווים לפחות)' : 'סיסמה חדשה – השאירו ריק כדי לא לשנות';
-    for (const id of ['#u-name', '#u-role', '#u-email']) $(id).closest('.field').hidden = !!passOnly;
+    for (const id of ['#u-name', '#u-role', '#u-email', '#u-phone']) $(id).closest('.field').hidden = !!passOnly;
     $('#u-role').disabled = !!(u && u.key === S.me.key);
     $('#u-err').textContent = '';
     $('#dlg-user').dataset.passOnly = passOnly ? '1' : '';
@@ -206,14 +197,14 @@
     if (e.submitter && e.submitter.value === 'cancel') return;
     e.preventDefault();
     const passOnly = !!$('#dlg-user').dataset.passOnly;
-    const body = passOnly ? { password: $('#u-pass').value } : { name: $('#u-name').value, role: $('#u-role').value, email: $('#u-email').value };
+    const body = passOnly ? { password: $('#u-pass').value } : { name: $('#u-name').value, role: $('#u-role').value, email: $('#u-email').value, phone: $('#u-phone').value };
     if (!passOnly && $('#u-pass').value) body.password = $('#u-pass').value;
     if (!M.editKey) body.password = $('#u-pass').value;
     $('#u-save').disabled = true;
     try {
       const r = M.editKey ? await api('/team/' + encodeURIComponent(M.editKey), { method: 'PATCH', json: body }) : await api('/team', { method: 'POST', json: body });
       $('#dlg-user').close();
-      toast(M.editKey ? (passOnly ? 'הסיסמה עודכנה ✓' : 'הפרטים עודכנו ✓') : `${r.user.name} נוסף/ה לצוות ✓`, 'ok');
+      toast(M.editKey ? (passOnly ? 'הסיסמה עודכנה' : 'הפרטים עודכנו') : `${r.user.name} נוסף/ה לצוות`, 'ok');
       await refreshTeamCfg(); await loadTeam(); renderTeamScreen();
     } catch (err) { $('#u-err').textContent = err.message; }
     finally { $('#u-save').disabled = false; }
@@ -242,8 +233,12 @@
       else { await loadTeam(); renderTeamScreen(); }
     } catch (e) { $('#manage').innerHTML = `<div class="mg-loading err">${esc(e.message)}</div>`; }
   }
+  // עדכון ברקע בלי הבהוב: מציירים מחדש רק כשהנתונים השתנו
   async function tick() {
-    if (S.screen === 'stats' && !document.querySelector('#manage input:focus')) { await loadStats().catch(() => {}); renderStatsScreen(); }
+    if (S.screen !== 'stats' || document.querySelector('#manage input:focus')) return;
+    const before = JSON.stringify(M.data);
+    await loadStats().catch(() => {});
+    if (S.screen === 'stats' && JSON.stringify(M.data) !== before) renderStatsScreen();
   }
 
   function bind() {
@@ -261,11 +256,11 @@
       const ud = e.target.closest('[data-udel]'); if (ud) return openDel(ud.dataset.udel);
       const ur = e.target.closest('[data-urestore]');
       if (ur) {
-        try { await api(`/team/${encodeURIComponent(ur.dataset.urestore)}/restore`, { method: 'POST' }); toast('הוחזר/ה לצוות ✓', 'ok'); await refreshTeamCfg(); await loadTeam(); renderTeamScreen(); }
+        try { await api(`/team/${encodeURIComponent(ur.dataset.urestore)}/restore`, { method: 'POST' }); toast('הוחזר/ה לצוות', 'ok'); await refreshTeamCfg(); await loadTeam(); renderTeamScreen(); }
         catch (err) { toast(err.message, 'err'); }
       }
     });
-    el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList.contains('mcard')) e.target.click(); });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('tr[data-member]')) e.target.click(); });
     el.addEventListener('change', async e => {
       if (e.target.id === 'r-from' || e.target.id === 'r-to') {
         M.from = $('#r-from').value; M.to = $('#r-to').value;
@@ -289,7 +284,7 @@
       const t = toast('מסיר מהצוות…', 'wait');
       try {
         const r = await api('/team/' + encodeURIComponent(M.delKey), { method: 'DELETE', json: { transferTo: $('#del-move').value || null } });
-        t.set(`הוסר/ה מהצוות ✓${r.moved ? ` · ${r.moved} פניות ${$('#del-move').value ? 'הועברו' : 'חזרו לכללי'}` : ''}`, 'ok');
+        t.set(`הוסר/ה מהצוות${r.moved ? ` · ${r.moved} פניות ${$('#del-move').value ? 'הועברו' : 'חזרו לכללי'}` : ''}`, 'ok');
         await refreshTeamCfg(); await loadTeam(); renderTeamScreen();
       } catch (err) { t.set(err.message, 'err'); }
     });

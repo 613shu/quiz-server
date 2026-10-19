@@ -33,11 +33,22 @@ class Users {
       // משתמש חדש שנוסף ל-TEAM_USERS (key שלא קיים עדיין, גם לא כמחוק) – מתווסף אוטומטית
       const fresh = config.TEAM.filter(t => !this.list.some(u => u.key === t.key));
       for (const t of fresh) this.list.push(this.fromEnv(t));
+      const fixed = this.demoteOldManagers();
       this.loaded = true;
-      return fresh.length > 0;
+      return fresh.length > 0 || fixed;
     }
     this.list = config.TEAM.map(u => this.fromEnv(u));
     this.loaded = true;
+    return true;
+  }
+
+  // חד-פעמי: מיימון היה המנהל לפי ברירת המחדל הקודמת. עכשיו המנהל הוא משתמש נפרד ("מנהל"),
+  // ולכן מיימון חוזר להיות חבר צוות – רק אם יש מנהל פעיל אחר. אחרי זה (roleFix) לא נוגעים יותר בתפקיד שלו.
+  demoteOldManagers() {
+    const u = this.list.find(x => x.key === 'maimon');
+    if (!u || u.roleFix || u.role !== 'manager' || config.MANAGERS.includes('maimon')) return false;
+    if (!this.list.some(x => x.key !== 'maimon' && !x.deleted && x.role === 'manager')) return false;
+    u.role = 'member'; u.roleFix = 1; u.ver = (u.ver || 1) + 1;
     return true;
   }
 
@@ -75,10 +86,10 @@ class Users {
     return null;
   }
 
-  public(u) { return u && { key: u.key, name: u.name, role: u.role || 'member', email: u.email || '', deleted: !!u.deleted, createdAt: u.createdAt || null }; }
+  public(u) { return u && { key: u.key, name: u.name, role: u.role || 'member', email: u.email || '', phone: u.phone || '', deleted: !!u.deleted, createdAt: u.createdAt || null }; }
 
   _need() { if (!this.loaded) throw new AppError(503, 'המערכת עדיין נטענת מהתיבה. נסו שוב בעוד דקה.'); }
-  _clean({ name, role, email }, partial) {
+  _clean({ name, role, email, phone }, partial) {
     const out = {};
     if (name !== undefined || !partial) {
       name = String(name || '').trim().replace(/\s+/g, ' ');
@@ -94,6 +105,11 @@ class Users {
       email = String(email || '').trim().toLowerCase();
       if (email && !EMAIL_RE.test(email)) throw new AppError(400, 'כתובת המייל לא תקינה');
       out.email = email;
+    }
+    if (phone !== undefined || !partial) {
+      phone = String(phone || '').trim().replace(/\s+/g, ' ');
+      if (phone && !/^[+\d][\d\s\-()]{5,19}$/.test(phone)) throw new AppError(400, 'מספר הטלפון לא תקין');
+      out.phone = phone;
     }
     return out;
   }
