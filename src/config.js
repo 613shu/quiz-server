@@ -36,6 +36,8 @@ module.exports = {
   FORWARDERS: (env.FORWARDERS || 'help@koh.org.il').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
   // רק מיילים שנשלחו במקור לאחת הכתובות האלה נחשבים פניות (כדי שמיילים פרטיים בתיבה לא ייכנסו).
   // ריק = כל מייל נכנס הוא פניה.
+  // ACCEPT_ALL (ברירת מחדל): כל מייל שמגיע לתיבה נכנס לדשבורד, מכל כתובת. ACCEPT_ALL=0 = רק מה שנשלח במקור ל-ACCEPT_TO.
+  ACCEPT_ALL: env.ACCEPT_ALL !== '0',
   ACCEPT_TO: (env.ACCEPT_TO ?? 'help@koh.org.il').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
   // שולחים שאינם פניות (הודעות מערכת של גוגל וכו') – מוסתרים אוטומטית
   IGNORE_SENDERS: (env.IGNORE_SENDERS || 'no-reply@accounts.google.com,forwarding-noreply@google.com,mail-noreply@google.com,mailer-daemon@googlemail.com')

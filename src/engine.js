@@ -183,7 +183,7 @@ class Engine {
     // רק מיילים שהגיעו דרך help@ (לפי הנמען המקורי או נתיב ההעברה) – כדי שמיילים פרטיים לא ייכנסו
     const viaHelp = m => m.imported || m.to.some(a => config.ACCEPT_TO.includes(a)) || config.FORWARDERS.includes(m.from.address)
       || config.ACCEPT_TO.some(a => (m.route || '').includes(a.split('@')[1]));
-    if (config.ACCEPT_TO.length && !incoming.some(viaHelp)) return null;
+    if (!config.ACCEPT_ALL && config.ACCEPT_TO.length && !incoming.some(viaHelp)) return null;
 
     // פונה: אם הגיע Fwd ידני מכתובת מעבירה – ננסה לחלץ את השולח המקורי
     const senderOf = m => {

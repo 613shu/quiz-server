@@ -44,7 +44,9 @@ app.post('/api/login', (req, res) => {
   const a = attempts.get(ip) || { n: 0, t: Date.now() };
   if (Date.now() - a.t > 10 * 60e3) { a.n = 0; a.t = Date.now(); }
   if (a.n >= 8) return res.status(429).json({ error: 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות.' });
-  const u = users.verify(String(req.body.key || ''), req.body.password);
+  let u = null;
+  try { u = users.verify(String((req.body && req.body.key) || ''), req.body && req.body.password); }
+  catch (e) { console.error('[login]', e); return res.status(500).json({ error: 'שגיאה בבדיקת הסיסמה. נסו שוב.' }); }
   if (!u) { a.n++; attempts.set(ip, a); return res.status(401).json({ error: 'סיסמה שגויה' }); }
   attempts.delete(ip);
   const exp = Date.now() + MAX_AGE, ver = String(users.loaded ? (u.ver || 0) : 0);

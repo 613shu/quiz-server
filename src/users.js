@@ -30,16 +30,23 @@ class Users {
   load(arr) {
     if (Array.isArray(arr) && arr.length) {
       this.list = arr.map(u => ({ ...u }));
+      // משתמש חדש שנוסף ל-TEAM_USERS (key שלא קיים עדיין, גם לא כמחוק) – מתווסף אוטומטית
+      const fresh = config.TEAM.filter(t => !this.list.some(u => u.key === t.key));
+      for (const t of fresh) this.list.push(this.fromEnv(t));
       this.loaded = true;
-      return false;
+      return fresh.length > 0;
     }
-    this.list = config.TEAM.map(u => ({
+    this.list = config.TEAM.map(u => this.fromEnv(u));
+    this.loaded = true;
+    return true;
+  }
+
+  fromEnv(u) {
+    return {
       key: u.key, name: u.name, role: config.MANAGERS.includes(u.key) ? 'manager' : 'member',
       email: config.SEED_EMAILS[u.key] || '', ver: 1, deleted: false, createdAt: new Date().toISOString(),
       ...hashPw(u.password),
-    }));
-    this.loaded = true;
-    return true;
+    };
   }
 
   toJSON() { return this.list; }
@@ -57,8 +64,9 @@ class Users {
   // בדיקת סיסמה. לפני טעינת המצב – לפי TEAM_USERS. מנהל שמופיע ב-TEAM_USERS תמיד יכול להיכנס עם הסיסמה משם (כניסת חירום).
   verify(key, password) {
     const env = config.TEAM.find(u => u.key === key);
-    const envOk = env && env.password.length === String(password || '').length
-      && crypto.timingSafeEqual(Buffer.from(env.password), Buffer.from(String(password || '')));
+    // השוואה על גיבוב באורך קבוע – לא נכשלת גם כשהסיסמה הוקלדה במקלדת עברית (אורך בבתים שונה)
+    const dig = v => crypto.createHash('sha256').update(String(v || '')).digest();
+    const envOk = !!env && crypto.timingSafeEqual(dig(env.password), dig(password));
     if (!this.loaded) return envOk ? this.get(key) : null;
     const u = this.get(key);
     if (!u || u.deleted) return null;
