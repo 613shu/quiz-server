@@ -93,9 +93,10 @@ class GmailProvider extends EventEmitter {
       this.sentBox = (find('\\Sent') || {}).path;
       if (!this.allMail) throw new Error('לא נמצאה תיקיית "כל הדואר" – ודאו ש-IMAP מופעל בג׳ימייל');
       // יצירת התוויות שהמערכת משתמשת בהן (אם עוד לא קיימות)
-      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', 'KOH/followup', 'KOH/not-english', importer.LABEL_BOX, importer.DONE_LABEL,
+      const needed = [STATE_BOX, 'KOH', 'KOH/by', 'KOH/cat', 'KOH/done', 'KOH/escalated', 'KOH/ignore', 'KOH/keep', 'KOH/reopened', 'KOH/followup', 'KOH/not-english', 'KOH/free', 'KOH/assigned', importer.LABEL_BOX, importer.DONE_LABEL,
         ...config.TEAM.map(u => `KOH/by/${u.key}`), ...config.CATEGORIES.map(c => `KOH/cat/${c.key}`)];
       for (const path of needed) if (!boxes.some(b => b.path === path)) await client.mailboxCreate(path).catch(() => {});
+      this.knownBoxes = new Set([...boxes.map(b => b.path), ...needed]);
 
       const mb = await client.mailboxOpen(this.allMail);
       if (this.uidValidity && String(mb.uidValidity) !== String(this.uidValidity)) {
@@ -203,6 +204,13 @@ class GmailProvider extends EventEmitter {
   async modifyLabels(uids, add = [], remove = []) {
     if (!uids.length) return;
     const range = uids.join(',');
+    // תוויות חדשות (למשל של חבר צוות שנוסף במסך ניהול הצוות) – יוצרים לפני השימוש
+    for (const l of add) {
+      if (l.startsWith('KOH/') && this.knownBoxes && !this.knownBoxes.has(l)) {
+        await this.client.mailboxCreate(l).catch(() => {});
+        this.knownBoxes.add(l);
+      }
+    }
     if (add.length) await this.client.messageFlagsAdd(range, add, { uid: true, useLabels: true });
     if (remove.length) await this.client.messageFlagsRemove(range, remove, { uid: true, useLabels: true });
     for (const uid of uids) {
@@ -256,20 +264,26 @@ class GmailProvider extends EventEmitter {
   }
 
   // אחסון קטן ועמיד (יומן פעולות) – הודעה בתווית KOH-System
+  // null = אין עדיין מצב שמור. אם יש מצב אבל הוא פגום – זורקים שגיאה (כדי לא לדרוס אותו במצב ריק)
   loadState() {
     const recs = [...this.messages.values()].filter(r => r.system === 'state').sort((a, b) => b.uid - a.uid);
     if (!recs.length) return null;
-    try { return JSON.parse(recs[0].fullText); } catch { return null; }
+    for (const r of recs) { try { return JSON.parse(r.fullText); } catch {} }
+    throw new Error('הודעת המצב בתיבה (KOH-System) פגומה');
   }
 
-  async saveState(obj) {
-    if (!this.status.connected) return;
-    const old = [...this.messages.values()].filter(r => r.system === 'state').map(r => r.uid);
-    const raw = [
+  // ארכיון היומן: הודעות שנכתבות פעם אחת ולא נמחקות (רשומות ישנות שיצאו מהמצב השוטף)
+  loadArchives() {
+    return [...this.messages.values()].filter(r => r.system === 'archive').sort((a, b) => a.uid - b.uid)
+      .map(r => { try { return JSON.parse(r.fullText); } catch { return null; } }).filter(Boolean);
+  }
+
+  systemRaw(kind, subject, obj) {
+    return [
       `From: "KOH System" <${config.GMAIL_USER}>`,
       `To: <${config.GMAIL_USER}>`,
-      'Subject: KOH dashboard state (do not delete)',
-      'X-KOH-System: state',
+      `Subject: ${subject}`,
+      `X-KOH-System: ${kind}`,
       `Date: ${new Date().toUTCString()}`,
       'MIME-Version: 1.0',
       'Content-Type: text/plain; charset=utf-8',
@@ -277,7 +291,17 @@ class GmailProvider extends EventEmitter {
       '',
       Buffer.from(JSON.stringify(obj)).toString('base64').replace(/.{76}/g, '$&\r\n'),
     ].join('\r\n');
-    await this.client.append(STATE_BOX, raw, ['\\Seen']);
+  }
+
+  async saveArchive(obj) {
+    if (!this.status.connected) throw new Error('אין חיבור לתיבה');
+    await this.client.append(STATE_BOX, this.systemRaw('archive', 'KOH dashboard log archive (do not delete)', obj), ['\\Seen']);
+  }
+
+  async saveState(obj) {
+    if (!this.status.connected) return;
+    const old = [...this.messages.values()].filter(r => r.system === 'state').map(r => r.uid);
+    await this.client.append(STATE_BOX, this.systemRaw('state', 'KOH dashboard state (do not delete)', obj), ['\\Seen']);
     await this.sync();
     if (old.length && this.trash) await this.client.messageMove(old.join(','), this.trash, { uid: true }).catch(() => {});
   }

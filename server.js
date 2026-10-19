@@ -4,10 +4,12 @@ const crypto = require('crypto');
 const path = require('path');
 const config = require('./src/config');
 const { Engine, AppError } = require('./src/engine');
+const { Users } = require('./src/users');
 
 const Provider = config.MAIL_PROVIDER === 'fake' ? require('./src/mail/fake') : require('./src/mail/gmail');
 const provider = new Provider();
-const engine = new Engine(provider);
+const users = new Users();
+const engine = new Engine(provider, users);
 
 const app = express();
 app.set('trust proxy', 1);
@@ -22,13 +24,19 @@ const sign = v => crypto.createHmac('sha256', SECRET).update(v).digest('base64ur
 const COOKIE = 'koh_s';
 const MAX_AGE = 30 * 24 * 3600 * 1000;
 
+// עוגייה: key.ver.exp.sig – ver משתנה בהחלפת סיסמה/מחיקה, וכך מנתק חיבורים ישנים
 function readSession(req) {
   const c = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(COOKIE + '='));
   if (!c) return null;
-  const [key, exp, sig] = decodeURIComponent(c.slice(COOKIE.length + 1)).split('.');
-  if (!key || !exp || !sig || sign(`${key}.${exp}`) !== sig || +exp < Date.now()) return null;
-  return config.TEAM.find(u => u.key === key) || null;
+  const [key, ver, exp, sig] = decodeURIComponent(c.slice(COOKIE.length + 1)).split('.');
+  if (!key || !ver || !exp || !sig || sign(`${key}.${ver}.${exp}`) !== sig || +exp < Date.now()) return null;
+  const u = users.get(key);
+  if (!u || u.deleted) return null;
+  // לפני טעינת המצב ver=0; אחרי הטעינה הגרסה חייבת להתאים
+  if (users.loaded && String(u.ver || 0) !== ver && ver !== '0') return null;
+  return u;
 }
+const meOf = u => ({ key: u.key, name: u.name, role: u.role || 'member', manager: engine.isManager(u) });
 
 const attempts = new Map();
 app.post('/api/login', (req, res) => {
@@ -36,16 +44,13 @@ app.post('/api/login', (req, res) => {
   const a = attempts.get(ip) || { n: 0, t: Date.now() };
   if (Date.now() - a.t > 10 * 60e3) { a.n = 0; a.t = Date.now(); }
   if (a.n >= 8) return res.status(429).json({ error: 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות.' });
-  const u = config.TEAM.find(x => x.key === req.body.key);
-  const ok = u && crypto.timingSafeEqual(
-    crypto.createHash('sha256').update(String(req.body.password || '')).digest(),
-    crypto.createHash('sha256').update(u.password).digest());
-  if (!ok) { a.n++; attempts.set(ip, a); return res.status(401).json({ error: 'סיסמה שגויה' }); }
+  const u = users.verify(String(req.body.key || ''), req.body.password);
+  if (!u) { a.n++; attempts.set(ip, a); return res.status(401).json({ error: 'סיסמה שגויה' }); }
   attempts.delete(ip);
-  const exp = Date.now() + MAX_AGE;
-  const val = `${u.key}.${exp}.${sign(`${u.key}.${exp}`)}`;
+  const exp = Date.now() + MAX_AGE, ver = String(users.loaded ? (u.ver || 0) : 0);
+  const val = `${u.key}.${ver}.${exp}.${sign(`${u.key}.${ver}.${exp}`)}`;
   res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(val)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE / 1000}${req.secure ? '; Secure' : ''}`);
-  res.json({ key: u.key, name: u.name });
+  res.json(meOf(u));
 });
 
 app.post('/api/logout', (req, res) => {
@@ -55,7 +60,8 @@ app.post('/api/logout', (req, res) => {
 
 // מידע ציבורי: רק שמות הצוות (לבחירה במסך הכניסה)
 app.get('/api/public', (req, res) => {
-  res.json({ team: config.TEAM.map(u => ({ key: u.key, name: u.name })), me: readSession(req) && { key: readSession(req).key, name: readSession(req).name } });
+  const me = readSession(req);
+  res.json({ team: users.active().map(u => ({ key: u.key, name: u.name })), me: me && meOf(me) });
 });
 
 // מכאן והלאה – רק למחוברים
@@ -73,21 +79,23 @@ const h = fn => async (req, res) => {
     res.status(e.status || 500).json({ error: e.status ? e.message : `שגיאה: ${e.message}` });
   }
 };
+const managerOnly = (req, res, next) => engine.isManager(req.user) ? next() : res.status(403).json({ error: 'רק למנהל' });
 
 app.get('/api/config', h(req => ({
-  me: { key: req.user.key, name: req.user.name },
-  team: config.TEAM.map(u => ({ key: u.key, name: u.name })),
+  me: meOf(req.user),
+  team: users.all().map(u => ({ key: u.key, name: u.name, role: u.role || 'member', deleted: !!u.deleted })),
   categories: config.CATEGORIES,
   inbox: provider.address,
+  overdueHours: config.OVERDUE_HOURS,
 })));
 
 app.get('/api/status', h(() => ({ ...provider.status, provider: provider.name, configured: provider.configured() })));
 
 app.get('/api/inquiries', h(req => ({
-  items: engine.list(req.query, req.user), counts: engine.counts(req.user), status: provider.status,
+  ...engine.list(req.query, req.user), counts: engine.counts(req.user), status: provider.status,
 })));
 
-app.get('/api/inquiries/:id', h(req => engine.detail(engine.get(req.params.id))));
+app.get('/api/inquiries/:id', h(req => engine.detail(engine.get(req.params.id, req.user), req.user)));
 app.post('/api/inquiries/:id/take', h(req => engine.take(req.params.id, req.user)));
 app.post('/api/inquiries/:id/release', h(req => engine.release(req.params.id, req.user)));
 app.post('/api/inquiries/:id/handled', h(req => engine.markHandled(req.params.id, req.user)));
@@ -95,6 +103,57 @@ app.post('/api/inquiries/:id/reopen', h(req => engine.reopen(req.params.id, req.
 app.post('/api/inquiries/:id/ignore', h(req => engine.ignore(req.params.id, req.user)));
 app.post('/api/inquiries/:id/categories', h(req => engine.setCategories(req.params.id, req.body.categories || [], req.user)));
 app.post('/api/inquiries/:id/escalate', h(req => engine.escalate(req.params.id, req.user, (req.body.note || '').trim())));
+app.post('/api/inquiries/:id/assign', h(req => engine.assign(req.params.id, req.user, String(req.body.to || ''))));
+app.post('/api/inquiries/:id/notes', h(req => engine.addNote(req.params.id, req.user, req.body.text)));
+app.delete('/api/inquiries/:id/notes/:noteId', h(req => engine.deleteNote(req.params.id, req.params.noteId, req.user)));
+
+// ---------- סטטיסטיקה וניהול צוות (מנהל) ----------
+app.get('/api/stats', managerOnly, h(req => engine.stats(req.query, req.user)));
+
+const needSave = () => {
+  if (!users.loaded || engine.stateBroken) throw new AppError(503, 'המערכת עדיין נטענת מהתיבה. נסו שוב בעוד דקה.');
+  if (!provider.status.connected) throw new AppError(503, 'אין חיבור לתיבת המייל, ולכן אי אפשר לשמור שינויים בצוות כרגע.');
+};
+const teamList = () => users.all().map(u => users.public(u));
+app.get('/api/team', managerOnly, h(() => ({ users: teamList() })));
+app.post('/api/team', managerOnly, h(async req => {
+  needSave();
+  const u = users.create(req.body || {});
+  await engine.saveStateNow();
+  engine.addLog(null, req.user, 'team', `הוסיף/ה את ${u.name} לצוות`);
+  return { user: users.public(u), users: teamList() };
+}));
+app.patch('/api/team/:key', managerOnly, h(async req => {
+  needSave();
+  const u = users.update(req.params.key, req.body || {}, req.user);
+  await engine.saveStateNow();
+  engine.cache = null;
+  return { user: users.public(u), users: teamList() };
+}));
+app.delete('/api/team/:key', managerOnly, h(async req => {
+  needSave();
+  const r = await engine.removeUser(req.params.key, req.user, req.body && req.body.transferTo ? String(req.body.transferTo) : null);
+  return { ...r, users: teamList() };
+}));
+app.post('/api/team/:key/restore', managerOnly, h(async req => {
+  needSave();
+  users.restore(req.params.key);
+  await engine.saveStateNow();
+  engine.cache = null;
+  return { users: teamList() };
+}));
+// כל אחד יכול להחליף את הסיסמה של עצמו
+app.post('/api/me/password', h(async (req, res) => {
+  needSave();
+  const u = users.setPassword(req.user.key, req.body.old, req.body.password);
+  await engine.saveStateNow();
+  // חיבור חדש עם הגרסה המעודכנת, כדי שהמשתמש לא יתנתק
+  const exp = Date.now() + MAX_AGE, ver = String(u.ver);
+  const val = `${u.key}.${ver}.${exp}.${sign(`${u.key}.${ver}.${exp}`)}`;
+  res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(val)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE / 1000}${req.secure ? '; Secure' : ''}`);
+  return { ok: true };
+}));
+
 // העלאת קבצים עם הודעות שגיאה ברורות (במקום דף שגיאה כללי)
 const MAX_TOTAL = 24 * 1024 * 1024;
 const uploadFiles = (req, res, next) => upload.array('files', 10)(req, res, err => {
@@ -120,7 +179,7 @@ app.post('/api/inquiries/:id/reply', uploadFiles, h(req => {
 
 app.get('/api/attachments/:id', async (req, res) => {
   try {
-    const a = await engine.attachment(req.params.id);
+    const a = await engine.attachment(req.params.id, req.user);
     // ?view=1 – פתיחה בדפדפן בלי הורדה. רק סוגים בטוחים (תמונות, PDF, טקסט); השאר תמיד כהורדה.
     const type = String(a.type || 'application/octet-stream').toLowerCase();
     const viewable = /^(image\/(png|jpe?g|gif|webp|bmp)|application\/pdf|text\/plain)$/.test(type);
@@ -149,6 +208,6 @@ if (provider.name === 'fake') {
 }
 
 app.listen(config.PORT, () => {
-  console.log(`דשבורד הפניות רץ על פורט ${config.PORT} (ספק: ${provider.name}, צוות: ${config.TEAM.map(u => u.name).join(', ') || 'לא הוגדר'})`);
+  console.log(`דשבורד הפניות רץ על פורט ${config.PORT} (ספק: ${provider.name}, צוות מ-TEAM_USERS: ${config.TEAM.map(u => u.name).join(', ') || 'לא הוגדר'})`);
   provider.start().catch(e => console.error('[start]', e));
 });

@@ -8,13 +8,23 @@ const ls = {
 
 const STATUS = { new: 'חדשה', in_progress: 'בטיפול', handled: 'טופלה', escalated: 'הועברה למנהל', ignored: 'הוסתרה' };
 const STATUS_COLOR = { new: 'var(--blue)', in_progress: 'var(--amber)', handled: 'var(--green)', escalated: 'var(--violet)', ignored: '#b5bad0' };
-const TABS = [['open', 'פתוחות'], ['mine', 'שלי'], ['handled', 'טופלו'], ['escalated', '🗂 הועבר למנהל'], ['ignored', 'הוסתרו']];
-const TEAM_COLORS = ['#e8488a', '#0f9f8f', '#f08c1a', '#7c4dff', '#3b6cf6', '#16a36a'];
+// צבע קבוע לכל חבר צוות לפי סדר ההוספה (לא לפי דירוג) – פלטה שנבדקה לעיוורון צבעים על הרקע הכהה
+const TEAM_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+const isMgr = () => !!(S.me && S.me.manager);
+// תצוגות לפי תפקיד: [מפתח, שם, מונה]
+function viewTabs() {
+  const c = S.counts;
+  if (!isMgr()) return [['open', '📥 פניות כלליות', c.general], ['mine', '🙋 הפניות שלי', c.mine, c.mineReturned]];
+  return [['open', '📥 כל הפתוחות', c.open], ['mine', '🙋 הפניות שלי', c.mine, c.mineReturned], ['escalated', '🗂 הועבר למנהל', c.escalatedOpen],
+    ['overdue', '⏰ ממתינות זמן רב', c.overdue], ['handled', '✅ טופלו', c.handled], ['ignored', '🙈 הוסתרו', c.ignored]];
+}
+const SUBS = [['open', 'לטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['done', 'טיפלתי']];
+const RANGES = [['', 'הכל'], ['0', 'היום'], ['6', '7 ימים'], ['29', '30 ימים']];
 const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0ea5e9', '#16a36a', '#c2410c'];
-const EVENT_ICON = { take: '🙋', release: '↩️', handled: '✅', reopen: '🔄', escalate: '↗️', categories: '🏷️', ignore: '🙈', reply: '✉️' };
+const EVENT_ICON = { take: '🙋', release: '↩️', handled: '✅', reopen: '🔄', escalate: '↗️', categories: '🏷️', ignore: '🙈', reply: '✉️', assign: '👤' };
 
 const S = {
-  cfg: null, me: null, view: 'open', category: null, q: '',
+  cfg: null, me: null, view: 'open', sub: 'open', member: null, range: '', screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {},
   items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
@@ -58,7 +68,14 @@ function toast(msg, kind = 'info', ms) {
 const initials = n => { const w = String(n || '?').replace(/["'<>]/g, '').trim().split(/\s+/); return (w[0]?.[0] || '?') + (w[1]?.[0] || ''); };
 const hash = s => [...String(s)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 const custColor = key => CUST_COLORS[hash(key) % CUST_COLORS.length];
-const teamColor = key => { const i = (S.cfg?.team || []).findIndex(u => u.key === key); return TEAM_COLORS[(i < 0 ? 0 : i) % TEAM_COLORS.length]; };
+const teamColor = key => { const i = (S.cfg?.team || []).findIndex(u => u.key === key); return TEAM_COLORS[(i < 0 ? hash(key || '') : i) % TEAM_COLORS.length]; };
+const teamName = key => (S.cfg?.team || []).find(u => u.key === key)?.name || key;
+const ilDay = d => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+const daysBack = n => ilDay(new Date(Date.now() - n * 864e5));
+function waitText(iso) {
+  const h = Math.floor((Date.now() - Date.parse(iso)) / 3600e3);
+  return h >= 48 ? `ממתינה ${Math.floor(h / 24)} ימים` : `ממתינה ${h} שע׳`;
+}
 const avatar = (name, color, cls = '') => `<span class="avatar ${cls}" style="--c:${color}">${esc(initials(name))}</span>`;
 const catOf = k => S.cfg.categories.find(c => c.key === k) || { key: k, name: k, color: '#64748b' };
 const catPill = k => { const c = catOf(k); return `<span class="cat" style="--c:${c.color}">${esc(c.name)}</span>`; };
@@ -167,39 +184,83 @@ function importLine(r) {
 
 function renderStats() {
   const c = S.counts;
-  const cards = [
-    ['open', '📥', c.new || 0, 'חדשות – מחכות לטיפול', 'var(--blue)'],
-    ['open', '⏳', c.in_progress || 0, 'בטיפול כרגע', 'var(--amber)'],
-    ['mine', '🙋', c.mine || 0, 'בטיפול שלי', 'var(--pink)'],
-    ['handled', '✅', c.handled || 0, 'טופלו', 'var(--green)'],
+  const cards = isMgr() ? [
+    ['open', '', '📥', c.new || 0, 'חדשות – בלי מטפל', 'var(--blue)'],
+    ['open', '', '⏳', c.in_progress || 0, 'בטיפול הצוות', 'var(--amber)'],
+    ['escalated', '', '🗂', c.escalatedOpen || 0, 'אצל המנהל', 'var(--violet)'],
+    ['overdue', '', '⏰', c.overdue || 0, `ממתינות מעל ${S.cfg.overdueHours} שע׳`, 'var(--red)'],
+  ] : [
+    ['open', '', '📥', c.general || 0, 'פניות כלליות', 'var(--blue)'],
+    ['mine', 'open', '🙋', c.mine || 0, 'לטיפול שלי', 'var(--pink)'],
+    ['mine', 'returned', '🔁', c.mineReturned || 0, 'חוזרות אליי', 'var(--amber)'],
+    ['mine', 'done', '✅', c.mineDoneToday || 0, 'טיפלתי היום', 'var(--green)'],
   ];
-  $('#stats').innerHTML = cards.map(([v, ic, n, l, col], i) =>
-    `<div class="stat ${S.view === v && (i !== 1) ? 'on' : ''}" data-view="${v}" style="--c:${col}">
+  $('#stats').innerHTML = cards.map(([v, sub, ic, n, l, col]) =>
+    `<div class="stat ${S.screen === 'inbox' && S.view === v && (!sub || S.sub === sub) ? 'on' : ''}" data-view="${v}" data-sub="${sub}" style="--c:${col}">
       <div class="stat-ic">${ic}</div><div><div class="num">${n}</div><div class="lbl">${l}</div></div></div>`).join('');
 }
 
 function renderTabs() {
-  const c = S.counts;
-  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button class="tab ${S.view === k ? 'active' : ''}" data-view="${k}">${l}<span class="cnt">${k === 'open' ? c.open : k === 'mine' ? c.mine : k === 'escalated' ? c.escalatedOpen || 0 : c[k] || 0}</span></button>`).join('');
+  const tab = ([k, l, n, hot]) => `<button class="tab ${S.screen === 'inbox' && S.view === k ? 'active' : ''}" data-view="${k}">${l}${hot ? `<span class="hot" title="חוזרות / הועברו אליך">${hot}</span>` : ''}<span class="cnt">${n || 0}</span></button>`;
+  $('#tabs').innerHTML = viewTabs().map(tab).join('');
+  const admin = isMgr();
+  $('#admin-h').hidden = $('#admin-tabs').hidden = !admin;
+  if (admin) $('#admin-tabs').innerHTML = [['stats', '📊 ניהול מענה'], ['team', '👥 ניהול צוות']]
+    .map(([k, l]) => `<button class="tab ${S.screen === k ? 'active' : ''}" data-screen="${k}">${l}</button>`).join('');
+  $('.cats-h').hidden = $('#chips').hidden = S.screen !== 'inbox';
 }
 
 function renderChips() {
-  const by = S.counts.byCategory || {};
+  const by = S.byCategory || {};
   $('#chips').innerHTML = `<button class="chip ${!S.category ? 'active' : ''}" data-cat="" style="--c:var(--ink-2)">הכל</button>` +
     S.cfg.categories.map(c => `<button class="chip ${S.category === c.key ? 'active' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}${by[c.key] ? `<span class="n">${by[c.key]}</span>` : ''}</button>`).join('');
+}
+
+// כותרת הרשימה: לשוניות משנה של "הפניות שלי" / הפניות של חבר צוות (מנהל), וטווח תאריכים לטופלו
+function renderListHead() {
+  const el = $('#list-head');
+  const personal = S.view === 'mine' || S.view === 'member';
+  const ranged = (personal && S.sub === 'done') || S.view === 'handled';
+  if (!personal && !ranged) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  const sc = S.subCounts || {};
+  let html = '';
+  if (S.view === 'member') html += `<div class="lh-who">${avatar(teamName(S.member), teamColor(S.member), 'sm team')}<b>הפניות של ${esc(teamName(S.member))}</b><button class="btn ghost sm" data-screen="stats">→ חזרה לניהול מענה</button></div>`;
+  if (personal) html += `<div class="seg">${SUBS.map(([k, l]) => `<button class="seg-b ${S.sub === k ? 'on' : ''} ${k === 'returned' && sc.returned ? 'warm' : ''} ${k === 'overdue' && sc.overdue ? 'alert' : ''}" data-sub="${k}">${l}<span>${sc[k] || 0}</span></button>`).join('')}</div>`;
+  if (ranged) html += `<div class="seg small">${RANGES.map(([k, l]) => `<button class="seg-b ${S.range === k ? 'on' : ''}" data-range="${k}">${l}</button>`).join('')}</div>`;
+  el.innerHTML = html;
+}
+
+// הודעה בולטת: פניות שחזרו אליי / הועברו אליי / ממתינות זמן רב
+function renderNotice() {
+  const c = S.counts, el = $('#notice');
+  const parts = [];
+  if (c.mineReturned) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">🔁</span><span>יש לך <b>${c.mineReturned}</b> ${c.mineReturned === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (c.mineOverdue) parts.push(`<button class="nt alert" data-view="mine" data-sub="overdue"><span class="nt-ic">⏰</span><span><b>${c.mineOverdue}</b> מהפניות שלך ממתינות למענה יותר מ-${S.cfg.overdueHours} שעות</span><span class="nt-go">לצפייה ←</span></button>`);
+  el.hidden = !parts.length;
+  el.innerHTML = parts.join('');
 }
 
 const isUnread = it => (it.status === 'new' || (it.status === 'escalated' && it.mgr === 'new')) && S.seen[it.id] !== it.lastIncoming;
 const MGR_LABEL = { new: 'חדשה', in_progress: 'בטיפול', answered: 'נענתה' };
 const statusText = it => it.status === 'escalated'
   ? `אצל המנהל · ${MGR_LABEL[it.mgr] || ''}${it.mgr === 'in_progress' && it.assigneeName ? ' – ' + it.assigneeName : ''}`
-  : STATUS[it.status] + (it.status === 'in_progress' ? ' · ' + it.assigneeName : '');
+  : STATUS[it.status] + (it.status === 'in_progress' && it.assignee !== S.me.key ? ' · ' + it.assigneeName : '');
+// תיוג "מי מטפל" על הפניה (כמו קטגוריה) – בתצוגות הכלליות של המנהל
+const ownerTag = it => it.assignee && it.assignee !== S.me.key && S.view !== 'member'
+  ? `<span class="owner-tag" style="--c:${teamColor(it.assignee)}"><i>${esc(initials(it.assigneeName))}</i>${esc(it.assigneeName)}</span>` : '';
 
 function renderList() {
   const el = $('#list');
   if (!S.items.length) {
-    const empty = S.view === 'open' && !S.q && !S.category;
-    el.innerHTML = `<li class="empty-list"><div class="big">${empty ? '🎉' : '🔍'}</div>${empty ? 'אין פניות פתוחות – כל הכבוד!' : 'לא נמצאו פניות'}</li>`;
+    const clear = !S.q && !S.category;
+    const msg = !clear ? 'לא נמצאו פניות'
+      : S.view === 'open' ? 'אין פניות פתוחות – כל הכבוד!'
+      : (S.view === 'mine' || S.view === 'member') && S.sub !== 'done' ? (S.sub === 'open' ? 'אין פניות שממתינות לטיפול' : 'אין כאן כלום כרגע')
+      : 'לא נמצאו פניות';
+    const good = clear && S.view !== 'handled' && S.sub !== 'done';
+    el.innerHTML = `<li class="empty-list"><div class="big">${good ? '🎉' : '🔍'}</div>${msg}</li>`;
+    S._listHtml = null;
     return;
   }
   const html = S.items.map(it => `
@@ -211,7 +272,10 @@ function renderList() {
         <div class="inq-snip">${esc(it.snippet)}</div>
         <div class="inq-meta">
           <span class="pill ${it.status}">${esc(statusText(it))}</span>
-          ${it.returned ? '<span class="pill returned">↩ הלקוח חזר</span>' : ''}
+          ${it.assigned ? '<span class="pill assigned">📨 הועבר אליך</span>' : ''}
+          ${it.returned ? '<span class="pill returned">🔁 הלקוח חזר</span>' : ''}
+          ${it.overdue ? `<span class="pill overdue">⏰ ${waitText(it.lastIncoming)}</span>` : ''}
+          ${ownerTag(it)}
           ${it.categories.map(catPill).join('')}
           ${it.hasAttachments ? '<span class="mini">📎</span>' : ''}
           ${it.messageCount > 1 ? `<span class="mini">💬 ${it.messageCount}</span>` : ''}
@@ -291,6 +355,11 @@ function timeline(d) {
       const c = e.userKey ? teamColor(e.userKey) : '#8a90ab';
       return { at: e.at, rank: e.action === 'take' ? 0 : 2, html: `<div class="event" style="--c:${c}">${EVENT_ICON[e.action] || '•'} <b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
     }),
+    ...(d.notes || []).map(n => ({ at: n.at, rank: 3, html: `<div class="note" style="--c:${teamColor(n.userKey)}">
+      <div class="n-head"><span class="n-tag">${n.kind === 'escalate' ? '↗ הערה בהעברה למנהל' : '📝 הערה פנימית'}</span><b>${esc(n.user)}</b><span class="n-time">${hm(n.at)}</span>
+        ${n.canDelete ? `<button class="n-del" data-note-del="${esc(n.id)}" title="מחיקת ההערה">✕</button>` : ''}</div>
+      <div class="n-body">${esc(n.text)}</div>
+      <div class="n-foot">לא נשלחה לתורם</div></div>` })),
   // כמו במייל: החדש למעלה. באותה שנייה (כותרת Date של מייל מעוגלת לשניות): "לקח לטיפול" מתחת לתשובה, פעולות אחרות מעליה
   ].sort((a, b) => b.at.slice(0, 19).localeCompare(a.at.slice(0, 19)) || b.rank - a.rank);
   let lastDay = null, html = '';
@@ -302,6 +371,41 @@ function timeline(d) {
   return html;
 }
 
+function detailActions(d) {
+  const me = S.me.key, mgr = isMgr();
+  const esc_ = d.status === 'escalated';
+  const mine = (d.status === 'in_progress' || esc_) && d.assignee === me;
+  const B = {
+    take: l => `<button class="btn primary" data-act="take">🙋 ${l || 'אני מטפל/ת בזה'}</button>`,
+    handled: `<button class="btn green" data-act="handled">✓ סמן כטופל</button>`,
+    escalate: `<button class="btn violet" data-act="escalate">↗ העבר למנהל</button>`,
+    assign: `<button class="btn violet" data-act="assign">👤 העבר לחבר צוות</button>`,
+    reopen: l => `<button class="btn amber" data-act="reopen">🔄 ${l || 'החזר לפניות הכלליות'}</button>`,
+    release: `<button class="btn ghost sm" data-act="release">↩ שחרר</button>`,
+    ignore: `<button class="btn ghost sm" data-act="ignore" title="למשל: פרסומת או הודעת מערכת">🙈 לא פניה</button>`,
+  };
+  // חבר צוות יכול להעביר רק למנהל. מנהל מעביר לכל חבר צוות ומחזיר לכללי.
+  const pass = mgr ? B.assign : B.escalate;
+  if (esc_) return (mine ? B.release : !d.assignee ? B.take() : '') + B.handled + B.assign + B.reopen();
+  if (d.status === 'new') return B.take() + B.handled + pass + B.ignore;
+  if (d.status === 'in_progress' && mine) return B.handled + pass + B.release;
+  if (d.status === 'in_progress') return B.take(`קח ממנו לטיפול שלי`) + B.assign + B.reopen() + B.handled;
+  if (d.status === 'handled') return B.take('תגובה נוספת') + (mgr ? B.assign + B.reopen() : '');
+  if (d.status === 'ignored') return mgr ? B.reopen() : '';
+  return '';
+}
+
+// הערות פנימיות – לא נשלחות לתורם
+function notesBox(d) {
+  return `<div class="notes-box">
+    <div class="nb-head"><span>📝 הערה פנימית</span><span class="nb-who">רואים: את/ה, המנהל, ומי שהפניה אצלו · לא נשלחת לתורם</span></div>
+    <div class="nb-row">
+      <textarea id="note-text" rows="1" maxlength="2000" placeholder="מה עשיתי, למה, מה עוד צריך…">${esc(S.noteDraft[d.id] || '')}</textarea>
+      <button type="button" class="btn sm note-btn" id="note-add">הוספה</button>
+    </div>
+  </div>`;
+}
+
 function renderDetail() {
   const d = S.detail, el = $('#detail');
   if (!d) { el.innerHTML = `<div class="empty-detail"><div class="big">💬</div><div>בחרו פניה מהרשימה כדי לראות את כל השיחה</div></div>`; return; }
@@ -309,28 +413,12 @@ function renderDetail() {
   const esc_ = d.status === 'escalated';
   const mine = (d.status === 'in_progress' || esc_) && d.assignee === me;
   const other = (d.status === 'in_progress' || esc_) && !!d.assignee && d.assignee !== me;
-
-  let actions = '';
-  if (esc_) {
-    actions = (mine ? `<button class="btn ghost sm" data-act="release">↩ שחרר</button>` : !d.assignee ? `<button class="btn primary" data-act="take">🙋 אני מטפל/ת בזה</button>` : '')
-      + `<button class="btn green" data-act="handled">✓ סמן כטופל</button><button class="btn amber" data-act="reopen">🔄 החזר לצוות</button>`;
-  }
-  else if (d.status === 'new') actions = `
-    <button class="btn primary" data-act="take">🙋 אני מטפל/ת בזה</button>
-    <button class="btn green" data-act="handled">✓ סמן כטופל</button>
-    <button class="btn violet" data-act="escalate">↗ העבר למנהל</button>
-    <button class="btn ghost sm" data-act="ignore" title="למשל: פרסומת או הודעת מערכת">🙈 לא פניה</button>`;
-  else if (mine) actions = `
-    <button class="btn green" data-act="handled">✓ סמן כטופל</button>
-    <button class="btn violet" data-act="escalate">↗ העבר למנהל</button>
-    <button class="btn ghost sm" data-act="release">↩ שחרר</button>`;
-  else if (d.status === 'handled') actions = `
-    <button class="btn primary" data-act="take" title="למשל: נזכרתם להוסיף משהו ללקוח">🙋 אני מטפל/ת בזה (תגובה נוספת)</button>
-    <button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
-  else if (d.status === 'ignored') actions = `<button class="btn amber" data-act="reopen">🔄 החזר לפתוחות</button>`;
+  const actions = detailActions(d);
 
   let owner = '';
-  if (d.status === 'in_progress' || (esc_ && d.assignee)) owner = `<span class="owner">${avatar(d.assigneeName, teamColor(d.assignee), 'sm team')} ${mine ? 'בטיפול שלך' : `בטיפול של <b>${esc(d.assigneeName)}</b>`}</span>`;
+  if (d.assignee) owner = `<span class="owner">${avatar(d.assigneeName, teamColor(d.assignee), 'sm team')} ${
+    d.status === 'handled' ? (d.assignee === me ? 'טופלה על ידך' : `טופלה על ידי <b>${esc(d.assigneeName)}</b>`)
+    : mine ? 'בטיפול שלך' : `בטיפול של <b>${esc(d.assigneeName)}</b>`}</span>`;
 
   let composer;
   if (mine) composer = composerHtml(d);
@@ -351,12 +439,15 @@ function renderDetail() {
       <div class="d-subj">${esc(d.subject)}</div>
       <div class="d-state">
         <span class="pill ${d.status}">${esc(d.status === 'escalated' ? 'אצל המנהל · ' + (MGR_LABEL[d.mgr] || '') : STATUS[d.status])}</span>
-        ${d.returned ? '<span class="pill returned">↩ הלקוח כתב שוב אחרי שענינו</span>' : ''}
+        ${d.assigned ? '<span class="pill assigned">📨 הועבר אליך ע״י המנהל</span>' : ''}
+        ${d.returned ? '<span class="pill returned">🔁 הלקוח כתב שוב אחרי שענינו</span>' : ''}
+        ${d.overdue ? `<span class="pill overdue">⏰ ${waitText(d.lastIncoming)}</span>` : ''}
         ${owner}
       </div>
       ${actions ? `<div class="d-actions">${actions}</div>` : ''}
       <div class="d-cats"><span class="lbl">🏷️ קטגוריה:</span>${S.cfg.categories.map(c =>
         `<button class="cat-toggle ${d.categories.includes(c.key) ? 'on' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}</button>`).join('')}</div>
+      ${notesBox(d)}
     </div>
     ${composer}
     <div class="convo" id="convo">${timeline(d)}</div>`;
@@ -527,17 +618,45 @@ async function sendReply() {
 
 // ---------- data ----------
 async function loadList() {
-  const p = new URLSearchParams({ view: S.view });
+  const p = new URLSearchParams({ view: S.view, sub: S.sub });
+  if (S.view === 'member') p.set('member', S.member);
+  if (S.range !== '') { p.set('from', daysBack(+S.range)); p.set('to', daysBack(0)); }
   if (S.category) p.set('category', S.category);
   if (S.q) p.set('q', S.q);
-  const { items, counts, status } = await api('/inquiries?' + p);
-  S.items = items; S.counts = counts; S.status = status;
-  renderTop(); renderStats(); renderTabs(); renderChips(); renderList();
+  const { items, counts, status, byCategory, subCounts } = await api('/inquiries?' + p);
+  S.items = items; S.counts = counts; S.status = status; S.byCategory = byCategory || {}; S.subCounts = subCounts;
+  renderTop(); renderStats(); renderTabs(); renderNotice();
+  if (S.screen !== 'inbox') return;
+  renderChips(); renderListHead(); renderList();
+}
+
+// מעבר בין המסכים: פניות / ניהול מענה / ניהול צוות
+function showScreen(name) {
+  S.screen = name;
+  const inbox = name === 'inbox';
+  $('#layout').classList.toggle('manage-mode', !inbox);
+  $('#manage').hidden = inbox;
+  $('#layout').classList.remove('show-detail');
+  renderTabs(); renderStats();
+  if (inbox) { renderChips(); renderListHead(); renderList(); }
+  else window.Manage && Manage.open(name);
+}
+
+// מעבר לתצוגת פניות (גם מכרטיס בניהול מענה)
+function setView(v, sub, member) {
+  S.view = v; S.sub = sub || 'open'; S.member = member || null;
+  if (v !== 'handled' && S.sub !== 'done') S.range = '';
+  S.selId = null; S.detail = null; S._listHtml = null;
+  if (S.screen !== 'inbox') showScreen('inbox');
+  renderDetail();
+  $('#list').scrollTop = 0;
+  return loadList();
 }
 
 async function openInquiry(id) {
   S.selId = id;
   S.detail = await api('/inquiries/' + encodeURIComponent(id));
+  if (S.detail.hidden) return gone();
   const it = S.items.find(x => x.id === id);
   if (it) { S.seen[id] = it.lastIncoming; ls.set('koh.seen', S.seen); }
   renderList(); renderDetail();
@@ -548,7 +667,8 @@ async function act(action) {
   const d = S.detail;
   if (action === 'back') { $('#layout').classList.remove('show-detail'); return; }
   if (action === 'escalate') { $('#esc-note').value = ''; $('#dlg-escalate').returnValue = ''; $('#dlg-escalate').showModal(); return; }
-  const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן כטופל ✓', reopen: 'הפניה חזרה לפתוחות', ignore: 'הוסתר – לא פניה' };
+  if (action === 'assign') return openAssign();
+  const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן כטופל ✓', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
   if (action === 'release' && ($('#reply-body')?.value.trim() || filesOf(d.id).length) && !confirm('יש טיוטה שלא נשלחה. לשחרר את הפניה בכל זאת? (הטיוטה תישמר)')) return;
   const clicked = document.querySelector(`[data-act="${action}"]`);
   document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
@@ -557,6 +677,7 @@ async function act(action) {
     S.detail = await api(`/inquiries/${encodeURIComponent(d.id)}/${action}`, { method: 'POST' });
     delete S.sentOk[d.id];
     toast(msgs[action] || 'עודכן', 'ok');
+    if (S.detail.hidden) { S.detail = null; S.selId = null; $('#layout').classList.remove('show-detail'); }
     await loadList(); renderDetail();
     if (action === 'take') $('#reply-body')?.focus();
   } catch (e) { toast(e.message, 'err'); await refresh().catch(() => {}); }
@@ -564,14 +685,51 @@ async function act(action) {
 
 async function refresh() {
   await loadList();
-  if (S.selId) { S.detail = await api('/inquiries/' + encodeURIComponent(S.selId)).catch(() => null); renderDetail(); }
+  if (S.selId) { S.detail = await api('/inquiries/' + encodeURIComponent(S.selId)).catch(() => null); if (S.detail && S.detail.hidden) S.detail = null; renderDetail(); }
+}
+
+// הפניה כבר לא אצלך (הועברה / נלקחה) – סוגרים אותה בעדינות
+function gone() {
+  S.detail = null; S.selId = null;
+  $('#layout').classList.remove('show-detail');
+  renderDetail(); loadList().catch(() => {});
+  toast('הפניה הזו כבר לא אצלך', 'info');
+}
+
+// העברה לחבר צוות (מנהל)
+function openAssign() {
+  const d = S.detail;
+  const list = (S.cfg.team || []).filter(u => !u.deleted);
+  $('#assign-list').innerHTML = list.map(u => `<button class="pick ${u.key === d.assignee ? 'cur' : ''}" value="${esc(u.key)}" style="--c:${teamColor(u.key)}">
+    ${avatar(u.name, teamColor(u.key), 'sm team')}<span>${esc(u.name)}${u.key === S.me.key ? ' (אני)' : ''}</span>${u.role === 'manager' ? '<span class="role-b">מנהל</span>' : ''}${u.key === d.assignee ? '<span class="cur-b">אצלו עכשיו</span>' : ''}</button>`).join('');
+  $('#dlg-assign').returnValue = '';
+  $('#dlg-assign').showModal();
+}
+
+async function addNote() {
+  const d = S.detail, ta = $('#note-text'); if (!d || !ta) return;
+  const text = ta.value.trim();
+  if (!text) { ta.focus(); return; }
+  const b = $('#note-add'); b.disabled = true;
+  try {
+    S.detail = await api(`/inquiries/${encodeURIComponent(d.id)}/notes`, { method: 'POST', json: { text } });
+    delete S.noteDraft[d.id];
+    renderDetail(); toast('ההערה נשמרה (לא נשלחה לתורם)', 'ok');
+  } catch (e) { toast(e.message, 'err'); b.disabled = false; }
 }
 
 // ---------- events ----------
 function bindApp() {
-  const setView = v => { S.view = v; loadList(); };
-  $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
-  $('#stats').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
+  const go = b => setView(b.dataset.view, b.dataset.sub || 'open').catch(err => toast(err.message, 'err'));
+  $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
+  $('#stats').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
+  $('#notice').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
+  $('#admin-tabs').addEventListener('click', e => { const b = e.target.closest('[data-screen]'); if (b) showScreen(b.dataset.screen); });
+  $('#list-head').addEventListener('click', e => {
+    const sc = e.target.closest('[data-screen]'); if (sc) return showScreen(sc.dataset.screen);
+    const sb = e.target.closest('[data-sub]'); if (sb) return setView(S.view, sb.dataset.sub, S.member);
+    const rg = e.target.closest('[data-range]'); if (rg) { S.range = rg.dataset.range; loadList(); }
+  });
   $('#chips').addEventListener('click', e => { const b = e.target.closest('[data-cat]'); if (b) { S.category = b.dataset.cat || null; loadList(); } });
   let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { S.q = e.target.value; loadList(); }, 250); });
   $('#list').addEventListener('click', e => { const li = e.target.closest('[data-id]'); if (li) openInquiry(li.dataset.id).catch(err => toast(err.message, 'err')); });
@@ -582,6 +740,14 @@ function bindApp() {
     const q = e.target.closest('[data-q]');
     if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? 'הצג היסטוריה קודמת' : 'הסתר היסטוריה'; return; }
     const rm = e.target.closest('[data-rm]'); if (rm) { filesOf(S.detail.id).splice(+rm.dataset.rm, 1); renderFiles(); return; }
+    if (e.target.closest('#note-add')) return addNote();
+    const nd = e.target.closest('[data-note-del]');
+    if (nd) {
+      if (!confirm('למחוק את ההערה?')) return;
+      try { S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/notes/${encodeURIComponent(nd.dataset.noteDel)}`, { method: 'DELETE' }); renderDetail(); }
+      catch (err) { toast(err.message, 'err'); }
+      return;
+    }
     if (e.target.closest('#retry-btn')) return sendReply();
     if (e.target.closest('#reply-to-reset')) { delete S.toBy[S.detail.id]; $('#reply-to').value = defTo(S.detail); $('#reply-to-reset').hidden = true; $('#reply-to-note').hidden = true; return; }
     if (e.target.closest('#err-x')) { delete S.sendErr[S.detail.id]; renderSendState(); return; }
@@ -604,8 +770,10 @@ function bindApp() {
   // Enter בשדה הנמען לא שולח את המייל – רק עובר לכתיבת התשובה
   det.addEventListener('keydown', e => { if (e.target.id === 'reply-to' && e.key === 'Enter') { e.preventDefault(); $('#reply-body')?.focus(); } });
   det.addEventListener('keydown', e => { if (e.target.id === 'reply-body' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); } });
+  det.addEventListener('keydown', e => { if (e.target.id === 'note-text' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addNote(); } });
   det.addEventListener('input', e => {
     if (e.target.id === 'reply-body') S.drafts[S.detail.id] = e.target.value;
+    if (e.target.id === 'note-text') { S.noteDraft[S.detail.id] = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; }
     if (e.target.id === 'reply-to') {
       S.toBy[S.detail.id] = e.target.value;
       const ch = toChanged(S.detail);
@@ -620,8 +788,31 @@ function bindApp() {
     document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
     try {
       S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/escalate`, { method: 'POST', json: { note: $('#esc-note').value } });
-      t.set('הפניה הועברה לתיקיית "הועבר למנהל" ✓', 'ok'); await loadList(); renderDetail();
+      t.set('הפניה הועברה למנהל ✓', 'ok');
+      if (S.detail.hidden) { S.detail = null; S.selId = null; $('#layout').classList.remove('show-detail'); }
+      await loadList(); renderDetail();
     } catch (e) { t.set('ההעברה למנהל נכשלה: ' + e.message, 'err'); document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = false)); }
+  });
+
+  $('#dlg-assign').addEventListener('close', async () => {
+    const to = $('#dlg-assign').returnValue;
+    if (!to || to === 'cancel' || !S.detail) return;
+    const t = toast(`מעביר ל${teamName(to)}…`, 'wait');
+    try {
+      S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/assign`, { method: 'POST', json: { to } });
+      t.set(`הפניה הועברה ל${teamName(to)} ✓`, 'ok'); await loadList(); renderDetail();
+    } catch (e) { t.set(e.message, 'err'); }
+  });
+
+  // החלפת הסיסמה שלי
+  $('#my-pass').addEventListener('click', () => { $('#p-old').value = ''; $('#p-new').value = ''; $('#p-err').textContent = ''; $('#dlg-pass').showModal(); $('#p-old').focus(); });
+  $('#pass-form').addEventListener('submit', async e => {
+    if (e.submitter && e.submitter.value === 'cancel') return;
+    e.preventDefault();
+    try {
+      await api('/me/password', { method: 'POST', json: { old: $('#p-old').value, password: $('#p-new').value } });
+      $('#dlg-pass').close(); toast('הסיסמה הוחלפה ✓', 'ok');
+    } catch (err) { $('#p-err').textContent = err.message; }
   });
 
   $('#logout').addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); location.reload(); });
@@ -633,6 +824,8 @@ async function startApp() {
   S.me = S.cfg.me;
   $('#login').hidden = true; $('#app').hidden = false;
   $('#me-name').textContent = S.me.name;
+  $('#me-role').textContent = S.me.manager ? 'מנהל' : '';
+  document.body.classList.toggle('is-mgr', !!S.me.manager);
   $('#me-avatar').outerHTML = avatar(S.me.name, teamColor(S.me.key), 'sm team').replace('<span', '<span id="me-avatar"');
   if (!started) { bindApp(); started = true; }
   renderDetail();
@@ -640,10 +833,12 @@ async function startApp() {
   setInterval(async () => {
     if (document.hidden || document.querySelector('dialog[open]') || $('#app').hidden) return;
     await loadList().catch(() => {});
-    const busy = S.sending || ['reply-body', 'reply-to'].includes(document.activeElement?.id) || (S.selId && filesOf(S.selId).length);
+    if (S.screen !== 'inbox') { window.Manage && Manage.tick(); return; }
+    const busy = S.sending || ['reply-body', 'reply-to', 'note-text'].includes(document.activeElement?.id) || (S.selId && filesOf(S.selId).length);
     if (S.selId && !busy) {
-      const fresh = await api('/inquiries/' + encodeURIComponent(S.selId)).catch(() => null);
-      if (fresh && JSON.stringify(fresh) !== JSON.stringify(S.detail)) { S.detail = fresh; renderDetail(); }
+      const fresh = await api('/inquiries/' + encodeURIComponent(S.selId)).catch(e => /לא נמצאת אצלך/.test(e.message) ? { hidden: true } : null);
+      if (fresh && fresh.hidden) gone();
+      else if (fresh && JSON.stringify(fresh) !== JSON.stringify(S.detail)) { S.detail = fresh; renderDetail(); }
     }
   }, 20000);
 }

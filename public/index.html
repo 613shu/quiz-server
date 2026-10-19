@@ -44,27 +44,33 @@
       <div class="sync" id="sync"></div>
       <div class="me">
         <span class="avatar sm" id="me-avatar"></span>
-        <span id="me-name"></span>
+        <span class="me-txt"><span id="me-name"></span><span class="me-role" id="me-role"></span></span>
+        <button class="btn ghost sm" id="my-pass" title="החלפת הסיסמה שלי">🔑</button>
         <button class="btn ghost sm" id="logout">יציאה</button>
       </div>
     </header>
 
     <div class="banner" id="banner" hidden></div>
+    <div class="notice" id="notice" hidden></div>
 
     <main class="layout" id="layout">
       <aside class="side-pane">
         <div class="side-h">תצוגה</div>
         <nav class="tabs" id="tabs"></nav>
-        <div class="side-h">קטגוריות</div>
+        <div class="side-h" id="admin-h" hidden>ניהול</div>
+        <nav class="tabs" id="admin-tabs" hidden></nav>
+        <div class="side-h cats-h">קטגוריות</div>
         <div class="chips" id="chips"></div>
       </aside>
       <aside class="list-pane">
+        <div class="list-head" id="list-head" hidden></div>
         <div class="filters">
           <div class="search-wrap"><span>🔍</span><input type="search" id="search" placeholder="חיפוש שם, מייל או תוכן"></div>
         </div>
         <ul class="inq-list" id="list"></ul>
       </aside>
       <section class="detail-pane" id="detail"></section>
+      <section class="manage-pane" id="manage" hidden></section>
     </main>
   </div>
 
@@ -72,8 +78,8 @@
     <form method="dialog">
       <div class="dlg-icon">↗</div>
       <h3>העברה למנהל</h3>
-      <p class="muted">הפניה תסומן ותעבור לתיקיית <b>"הועבר למנהל"</b>. המנהל ייכנס לדשבורד ויטפל בה משם. לא נשלח מייל.</p>
-      <label class="field">הערה למנהל (לא חובה)
+      <p class="muted">הפניה תעבור לתיקיית <b>"הועבר למנהל"</b>, ורק המנהל יראה אותה. לא נשלח מייל.</p>
+      <label class="field">הערה למנהל (לא חובה · לא נשלחת לתורם)
         <textarea id="esc-note" rows="3" placeholder="למשל: תורם גדול, מבקש שיחה אישית"></textarea>
       </label>
       <div class="dlg-actions">
@@ -83,7 +89,66 @@
     </form>
   </dialog>
 
+  <dialog id="dlg-assign" class="dlg">
+    <form method="dialog">
+      <div class="dlg-icon">👤</div>
+      <h3>העברה לחבר צוות</h3>
+      <p class="muted">הפניה תעבור לטיפול של מי שתבחרו, ותופיע אצלו ב"הפניות שלי" עם הסימון "הועבר אליך".</p>
+      <div class="pick-list" id="assign-list"></div>
+      <div class="dlg-actions"><button value="cancel" class="btn ghost">ביטול</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-user" class="dlg">
+    <form method="dialog" id="user-form">
+      <div class="dlg-icon">👥</div>
+      <h3 id="user-title">חבר צוות חדש</h3>
+      <label class="field">שם (כפי שיופיע במערכת)<input id="u-name" maxlength="40" required></label>
+      <label class="field">תפקיד
+        <select id="u-role"><option value="member">חבר צוות</option><option value="manager">מנהל</option></select>
+      </label>
+      <label class="field">מייל (לא חובה)<input id="u-email" type="email" dir="ltr" placeholder="name@example.com"></label>
+      <label class="field"><span id="u-pass-l">סיסמה (6 תווים לפחות)</span><input id="u-pass" type="text" dir="ltr" autocomplete="new-password"></label>
+      <div class="login-err" id="u-err"></div>
+      <div class="dlg-actions">
+        <button value="ok" class="btn primary" id="u-save">שמירה</button>
+        <button value="cancel" class="btn ghost" formnovalidate>ביטול</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-del" class="dlg">
+    <form method="dialog">
+      <div class="dlg-icon red">🗑</div>
+      <h3 id="del-title">הסרה מהצוות</h3>
+      <p class="muted" id="del-text"></p>
+      <label class="field" id="del-move-f">מה לעשות עם הפניות הפתוחות שלו?
+        <select id="del-move"></select>
+      </label>
+      <div class="dlg-actions">
+        <button value="ok" class="btn red">הסרה</button>
+        <button value="cancel" class="btn ghost">ביטול</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-pass" class="dlg">
+    <form method="dialog" id="pass-form">
+      <div class="dlg-icon">🔑</div>
+      <h3>החלפת הסיסמה שלי</h3>
+      <label class="field">הסיסמה הנוכחית<input id="p-old" type="password" autocomplete="current-password"></label>
+      <label class="field">סיסמה חדשה (6 תווים לפחות)<input id="p-new" type="password" autocomplete="new-password"></label>
+      <div class="login-err" id="p-err"></div>
+      <div class="dlg-actions">
+        <button value="ok" class="btn primary">שמירה</button>
+        <button value="cancel" class="btn ghost" formnovalidate>ביטול</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="tip" id="tip" hidden></div>
   <script src="app.js"></script>
+  <script src="manage.js"></script>
 </body>
 </html>

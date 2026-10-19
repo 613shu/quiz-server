@@ -83,6 +83,8 @@ class FakeProvider extends EventEmitter {
   async getRaw(uid) { return this.raws.get(uid); }
   loadState() { return this.state || null; }
   async saveState(s) { this.state = JSON.parse(JSON.stringify(s)); }
+  loadArchives() { return (this.archives || []).map(a => JSON.parse(JSON.stringify(a))); }
+  async saveArchive(a) { (this.archives ||= []).push(JSON.parse(JSON.stringify(a))); }
 }
 
 module.exports = FakeProvider;

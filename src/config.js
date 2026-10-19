@@ -54,6 +54,11 @@ module.exports = {
   TEAM_DOMAINS: (env.TEAM_DOMAINS || 'koh.org.il,kerenolamhatorah.org').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
 
   TEAM: parseTeam(env.TEAM_USERS),
+  // מנהלים (לפי ה-key ב-TEAM_USERS). משמש באתחול הראשון ולכניסת חירום; אחר כך מנהלים את התפקידים במסך "ניהול צוות".
+  MANAGERS: (env.MANAGERS || 'maimon').toLowerCase().split(',').map(s => s.trim()).filter(Boolean),
+  SEED_EMAILS: { maimon: 'mmaimon11@gmail.com' },
+  // אחרי כמה שעות בלי מענה פניה מסומנת "ממתינה זמן רב"
+  OVERDUE_HOURS: +(env.OVERDUE_HOURS || 48),
   SESSION_SECRET: env.SESSION_SECRET || '',
   CATEGORIES,
   SYNC_INTERVAL_MS: +(env.SYNC_INTERVAL_MS || 60000),
