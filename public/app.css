@@ -348,6 +348,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .toast .t-ic { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700;
   background: var(--blue-bg); color: var(--blue); margin-top: 1px; }
 .toast .t-msg { flex: 1; }
+.toast .t-n { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 2px; }
+.toast .t-n:empty { display: none; }
+.toast.bump { animation: t-bump .25s ease-out; }
+@keyframes t-bump { 50% { transform: scale(1.02); } }
 .toast .t-x { flex: none; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 13px; }
 .toast.ok { border-inline-start-color: var(--green); } .toast.ok .t-ic { background: var(--green-bg); color: var(--green); }
 .toast.err { border-inline-start-color: var(--red); background: #2c1a2e; } .toast.err .t-ic { background: rgba(255,93,108,.2); color: var(--red); }

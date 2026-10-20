@@ -63,6 +63,7 @@ async function api(path, opts = {}) {
 function httpError(status, data) {
   if (data && data.error) return data.error;
   if (status === 413) return 'הקבצים גדולים מדי לשליחה.';
+  if (status === 418) return 'הבקשה נחסמה בדרך לשרת – כנראה ע״י סינון האינטרנט או תוסף בדפדפן (418).';
   if (status >= 502 && status <= 504) return 'השרת לא הגיב בזמן (ייתכן שהוא מתעורר משינה). נסו שוב בעוד דקה.';
   return `שגיאה בתקשורת עם השרת (${status}).`;
 }
@@ -71,16 +72,31 @@ function httpError(status, data) {
 const TOAST_ICON = { ok: '✓', err: '!', info: 'i', wait: '' };
 function toast(msg, kind = 'info', ms) {
   const box = $('#toasts');
+  const life = ms ?? (kind === 'err' ? 10000 : kind === 'wait' ? 0 : 3500);
+  // אותה הודעה כבר מוצגת – לא מוסיפים עוד אחת, רק מעדכנים מונה ומאריכים את הזמן
+  if (kind !== 'wait') {
+    const dup = [...box.children].find(t => !t.classList.contains('out') && t.dataset.kind === kind && t.dataset.msg === msg);
+    if (dup) {
+      dup._n = (dup._n || 1) + 1;
+      dup.querySelector('.t-n').textContent = '×' + dup._n;
+      dup.classList.remove('bump'); void dup.offsetWidth; dup.classList.add('bump');
+      if (life) { clearTimeout(dup._timer); dup._timer = setTimeout(dup._close, life); }
+      return dup._api;
+    }
+  }
   const t = document.createElement('div');
   t.className = 'toast ' + kind;
+  t.dataset.kind = kind; t.dataset.msg = msg;
   t.setAttribute('role', kind === 'err' ? 'alert' : 'status');
-  t.innerHTML = `<span class="t-ic">${kind === 'wait' ? '<span class="spin"></span>' : TOAST_ICON[kind] || 'i'}</span><span class="t-msg">${esc(msg)}</span><button class="t-x" title="סגירה">✕</button>`;
-  const close = () => { t.classList.add('out'); setTimeout(() => t.remove(), 220); };
+  t.innerHTML = `<span class="t-ic">${kind === 'wait' ? '<span class="spin"></span>' : TOAST_ICON[kind] || 'i'}</span><span class="t-msg">${esc(msg)}</span><span class="t-n"></span><button class="t-x" title="סגירה">✕</button>`;
+  const close = () => { clearTimeout(t._timer); t.classList.add('out'); setTimeout(() => t.remove(), 220); };
+  t._close = close;
   t.querySelector('.t-x').onclick = close;
   box.appendChild(t);
-  const life = ms ?? (kind === 'err' ? 10000 : kind === 'wait' ? 0 : 3500);
-  if (life) setTimeout(close, life);
-  return { close, set(m, k) { t.className = 'toast ' + k; t.querySelector('.t-msg').textContent = m; t.querySelector('.t-ic').innerHTML = TOAST_ICON[k] || 'i'; setTimeout(close, k === 'err' ? 10000 : 3500); } };
+  while (box.children.length > 3) { const kids = [...box.children]; (kids.find(k => k !== t && k.dataset.kind !== 'err' && k.dataset.kind !== 'wait') || kids[0]).remove(); }
+  if (life) t._timer = setTimeout(close, life);
+  t._api = { close, set(m, k) { t.className = 'toast ' + k; t.dataset.kind = k; t.dataset.msg = m; t.querySelector('.t-msg').textContent = m; t.querySelector('.t-ic').innerHTML = TOAST_ICON[k] || 'i'; clearTimeout(t._timer); t._timer = setTimeout(close, k === 'err' ? 10000 : 3500); } };
+  return t._api;
 }
 
 const initials = n => { const w = String(n || '?').replace(/["'<>]/g, '').trim().split(/\s+/); return (w[0]?.[0] || '?') + (w[1]?.[0] || ''); };
