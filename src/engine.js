@@ -341,11 +341,12 @@ class Engine {
     };
   }
 
-  // הערות פנימיות: רואים רק מי שכתב/ה, המנהל, ומי שהפניה אצלו עכשיו
+  // הערות פנימיות: רואים מי שכתב/ה, המנהל, ומי שהפניה אצלו עכשיו; בפניה שטופלה – כל הצוות
   notesFor(t, user) {
     const mgr = this.isManager(user);
     return this.notes.filter(n => t.ids.includes(n.t))
-      .filter(n => mgr || n.user === user.key || t.assignee === user.key)
+      // בפניה שטופלה – כל הצוות רואה את ההערות (לקריאה, כחלק מהחיפוש בפניות שטופלו)
+      .filter(n => mgr || n.user === user.key || t.assignee === user.key || t.status === 'handled')
       .map(n => ({ id: n.id, at: n.at, user: this.userName(n.user), userKey: n.user, text: n.text, kind: n.kind || 'note', canDelete: mgr || n.user === user.key }));
   }
 

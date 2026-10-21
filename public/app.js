@@ -415,7 +415,7 @@ function timeline(d) {
     }),
     ...(d.notes || []).map(n => ({ at: n.at, rank: 3, html: `<div class="note" style="--c:${teamColor(n.userKey)}">
       <div class="n-head"><span class="n-tag">${n.kind === 'escalate' ? 'הערה בהעברה למנהל' : 'הערה פנימית'}</span><b>${esc(n.user)}</b><span class="n-time">${hm(n.at)}</span>
-        ${n.canDelete ? `<button class="n-del" data-note-del="${esc(n.id)}" title="מחיקת ההערה">✕</button>` : ''}</div>
+        ${n.canDelete && !(S.detail && S.detail.readOnly) ? `<button class="n-del" data-note-del="${esc(n.id)}" title="מחיקת ההערה">✕</button>` : ''}</div>
       <div class="n-body">${esc(n.text)}</div>
       <div class="n-foot">לא נשלחה לתורם</div></div>` })),
   // כמו במייל: החדש למעלה. באותה שנייה (כותרת Date של מייל מעוגלת לשניות): "לקח לטיפול" מתחת לתשובה, פעולות אחרות מעליה
