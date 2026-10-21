@@ -7,7 +7,12 @@ const ls = {
 };
 
 const STATUS = { new: 'חדשה', in_progress: 'בטיפול', handled: 'טופלה', escalated: 'הועברה למנהל', ignored: 'הוסתרה' };
-const STATUS_COLOR = { new: 'var(--blue)', in_progress: 'var(--amber)', handled: 'var(--green)', escalated: 'var(--violet)', ignored: '#b5bad0' };
+const STATUS_COLOR = { new: 'var(--blue)', in_progress: 'var(--amber)', handled: 'var(--green)', tracking: 'var(--teal)', escalated: 'var(--violet)', ignored: '#b5bad0' };
+// טופלה מתחלקת לשתיים: הושלם (ברירת מחדל) / במעקב (הנציגה סימנה שמחכים ללקוח)
+const doneText = it => it.tracking ? 'טופלה · במעקב' : 'טופלה · הושלם';
+const stKey = it => it.status === 'handled' && it.tracking ? 'tracking' : it.status;
+const daysSince = iso => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86400e3));
+const trackAge = iso => { const n = daysSince(iso); return n === 0 ? 'נענתה היום' : n === 1 ? 'ממתינה יום אחד' : `ממתינה ${n} ימים`; };
 // צבע קבוע לכל חבר צוות לפי סדר ההוספה (לא לפי דירוג) – פלטה שנבדקה לעיוורון צבעים על הרקע הכהה
 const TEAM_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 // אייקוני קו שקטים (במקום אימוג׳י)
@@ -16,6 +21,7 @@ const ICONS = {
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   ret: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   clip: '<path d="m21 11-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.3-2.3l7.9-7.9"/>',
@@ -34,9 +40,9 @@ function viewTabs() {
   const c = S.counts;
   if (!isMgr()) return [['open', 'פניות כלליות', c.general], ['mine', 'הפניות שלי', c.mine, c.mineReturned]];
   return [['open', 'כל הפתוחות', c.open], ['mine', 'הפניות שלי', c.mine, c.mineReturned], ['escalated', 'הועבר למנהל', c.escalatedOpen],
-    ['overdue', 'ממתינות זמן רב', c.overdue], ['handled', 'טופלו', c.handled], ['ignored', 'הוסתרו', c.ignored]];
+    ['overdue', 'ממתינות זמן רב', c.overdue], ['handled', 'טופלו – הושלם', c.handled], ['tracking', 'טופלו – במעקב', c.tracking], ['ignored', 'הוסתרו', c.ignored]];
 }
-const SUBS = [['open', 'לטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['done', 'טיפלתי']];
+const SUBS = [['open', 'לטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['done', 'הושלמו'], ['tracking', 'במעקב']];
 const RANGES = [['', 'הכל'], ['0', 'היום'], ['6', '7 ימים'], ['29', '30 ימים']];
 const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0ea5e9', '#16a36a', '#c2410c'];
 
@@ -279,6 +285,7 @@ const isUnread = it => (it.status === 'new' || (it.status === 'escalated' && it.
 const MGR_LABEL = { new: 'חדשה', in_progress: 'בטיפול', answered: 'נענתה' };
 const statusText = it => it.status === 'escalated'
   ? `אצל המנהל · ${MGR_LABEL[it.mgr] || ''}${it.mgr === 'in_progress' && it.assigneeName ? ' – ' + it.assigneeName : ''}`
+  : it.status === 'handled' ? doneText(it)
   : STATUS[it.status] + (it.status === 'in_progress' && it.assignee !== S.me.key ? ' · ' + it.assigneeName : '');
 // תיוג "מי מטפל" על הפניה (כמו קטגוריה) – בתצוגות הכלליות של המנהל
 const ownerTag = it => it.assignee && it.assignee !== S.me.key && S.view !== 'member'
@@ -290,22 +297,25 @@ function renderList() {
     const clear = !S.q && !S.category;
     const msg = !clear ? 'לא נמצאו פניות'
       : S.view === 'open' ? 'אין פניות פתוחות – כל הכבוד!'
+      : S.view === 'tracking' || S.sub === 'tracking' ? 'אין פניות במעקב כרגע'
       : (S.view === 'mine' || S.view === 'member') && S.sub !== 'done' ? (S.sub === 'open' ? 'אין פניות שממתינות לטיפול' : 'אין כאן כלום כרגע')
       : 'לא נמצאו פניות';
-    const good = clear && S.view !== 'handled' && S.sub !== 'done';
+    const good = clear && S.view !== 'handled' && S.sub !== 'done' && S.view !== 'tracking' && S.sub !== 'tracking';
     el.innerHTML = `<li class="empty-list"><div class="big">${ic(good ? 'check' : 'search')}</div>${msg}</li>`;
     S._listHtml = null;
     return;
   }
   const html = S.items.map(it => `
-    <li class="inq ${it.id === S.selId ? 'sel' : ''}" data-id="${esc(it.id)}" style="--s:${STATUS_COLOR[it.status]}">
+    <li class="inq ${it.id === S.selId ? 'sel' : ''}" data-id="${esc(it.id)}" style="--s:${STATUS_COLOR[stKey(it)]}">
       ${avatar(it.fromName, custColor(it.fromEmail))}
       <div class="inq-main">
         <div class="inq-row"><span class="inq-from">${isUnread(it) ? '<span class="unread-dot"></span>' : ''}${esc(it.fromName)}</span><span class="inq-time">${fmtTime(it.lastIncoming)}</span></div>
         <div class="inq-subj">${esc(it.subject)}</div>
         <div class="inq-snip">${esc(it.snippet)}</div>
         <div class="inq-meta">
-          <span class="pill ${it.status}">${esc(statusText(it))}</span>
+          <span class="pill ${stKey(it)}">${it.tracking ? ic('eye') : ''}${esc(statusText(it))}</span>
+          ${it.tracking ? `<span class="pill track-age" title="מאז התשובה האחרונה">${trackAge(it.lastActivity)}</span>` : ''}
+          ${it.fromTracking ? '<span class="pill from-track">חזרה ממעקב</span>' : ''}
           ${it.assigned ? '<span class="pill assigned">הועבר אליך</span>' : ''}
           ${it.returned ? '<span class="pill returned">הלקוח חזר</span>' : ''}
           ${it.overdue ? `<span class="pill overdue">${waitText(it.lastIncoming)}</span>` : ''}
@@ -411,7 +421,10 @@ function detailActions(d) {
   const mine = (d.status === 'in_progress' || esc_) && d.assignee === me;
   const B = {
     take: l => `<button class="btn primary" data-act="take">${l || 'אני מטפל/ת בזה'}</button>`,
-    handled: `<button class="btn green" data-act="handled">סמן כטופל</button>`,
+    // סימון כטופל – שתי אפשרויות ברורות
+    handled: `<span class="done-split" role="group" aria-label="סימון כטופל">
+      <button class="btn green" data-act="handled" title="הטיפול הסתיים">${ic('check')} טופל – הושלם</button>
+      <button class="btn teal" data-act="handled-track" title="ענינו, ומחכים ללקוח (למשל ביקשנו קובץ)">${ic('eye')} טופל – במעקב</button></span>`,
     escalate: `<button class="btn violet" data-act="escalate">העבר למנהל</button>`,
     assign: `<button class="btn violet" data-act="assign">העבר לחבר צוות</button>`,
     reopen: l => `<button class="btn amber" data-act="reopen">${l || 'החזר לפניות הכלליות'}</button>`,
@@ -424,7 +437,13 @@ function detailActions(d) {
   if (d.status === 'new') return B.take() + B.handled + pass + B.ignore;
   if (d.status === 'in_progress' && mine) return B.handled + pass + B.release;
   if (d.status === 'in_progress') return B.take(`קח ממנו לטיפול שלי`) + B.assign + B.reopen() + B.handled;
-  if (d.status === 'handled') return B.take('תגובה נוספת') + (mgr ? B.assign + B.reopen() : '');
+  if (d.status === 'handled') {
+    const canTrack = mgr || !d.assignee || d.assignee === me;
+    const tr = !canTrack ? '' : d.tracking
+      ? `<button class="btn green" data-act="track-off" title="הטיפול הסתיים – יוצא מרשימת המעקב">${ic('check')} סמן כהושלם</button>`
+      : `<button class="btn teal" data-act="track-on" title="מחכים ללקוח – נכנס לרשימת המעקב">${ic('eye')} העבר למעקב</button>`;
+    return B.take('תגובה נוספת') + tr + (mgr ? B.assign + B.reopen() : '');
+  }
   if (d.status === 'ignored') return mgr ? B.reopen() : '';
   return '';
 }
@@ -472,7 +491,9 @@ function renderDetail() {
       </div>
       <div class="d-subj">${esc(d.subject)}</div>
       <div class="d-state">
-        <span class="pill ${d.status}">${esc(d.status === 'escalated' ? 'אצל המנהל · ' + (MGR_LABEL[d.mgr] || '') : STATUS[d.status])}</span>
+        <span class="pill ${stKey(d)}">${d.tracking ? ic('eye') : ''}${esc(d.status === 'escalated' ? 'אצל המנהל · ' + (MGR_LABEL[d.mgr] || '') : d.status === 'handled' ? doneText(d) : STATUS[d.status])}</span>
+        ${d.tracking ? `<span class="pill track-age" title="מאז התשובה האחרונה ללקוח">${trackAge(d.lastActivity)}</span>` : ''}
+        ${d.fromTracking ? '<span class="pill from-track">הלקוח חזר – הפניה הייתה במעקב</span>' : ''}
         ${d.assigned ? '<span class="pill assigned">הועבר אליך ע״י המנהל</span>' : ''}
         ${d.returned ? '<span class="pill returned">הלקוח כתב שוב אחרי שענינו</span>' : ''}
         ${d.overdue ? `<span class="pill overdue">${waitText(d.lastIncoming)}</span>` : ''}
@@ -523,7 +544,8 @@ function composerHtml(d) {
           <span class="c-hint">אפשר לגרור קבצים לכאן · Ctrl+Enter לשליחה</span>
           <div class="c-btns">
             <label class="btn ghost sm file-btn">${ic('clip')} צירוף קובץ<input type="file" id="file-input" multiple hidden></label>
-            <button class="btn primary" type="submit" id="send-btn">שליחה</button>
+            <button class="btn teal send-track" type="button" id="send-track-btn" title="התשובה תישלח, והפניה תעבור ל&quot;טופלו – במעקב&quot; (למשל כשביקשנו מהלקוח קובץ)">${ic('eye')} שליחה והשארה במעקב</button>
+            <button class="btn primary" type="submit" id="send-btn" title="התשובה תישלח, והפניה תעבור ל&quot;טופלו – הושלם&quot;">שליחה</button>
           </div>
         </div>
         <div class="drop-hint">${ic('clip')} שחררו כאן כדי לצרף</div>
@@ -571,7 +593,9 @@ function renderSendState(p) {
   if (box) box.classList.toggle('busy', busy);
   if (ta) ta.readOnly = busy;
   const ti = $('#reply-to'); if (ti) ti.readOnly = busy;
-  if (btn) { btn.disabled = busy; btn.innerHTML = busy ? '<span class="spin"></span> שולח…' : 'שליחה'; }
+  const tb = $('#send-track-btn'), trk = busy && S.sendTrack;
+  if (btn) { btn.disabled = busy; btn.innerHTML = busy && !trk ? '<span class="spin"></span> שולח…' : 'שליחה'; }
+  if (tb) { tb.disabled = busy; tb.hidden = S.detail.status === 'escalated'; tb.innerHTML = trk ? '<span class="spin"></span> שולח…' : `${ic('eye')} שליחה והשארה במעקב`; }
   if (fb) fb.classList.toggle('disabled', busy);
   if (busy) {
     p = p || S.sendProgress || { stage: 'send' };
@@ -616,7 +640,8 @@ function postWithProgress(url, fd, onUp) {
   });
 }
 
-async function sendReply() {
+// track = true → "שליחה והשארה במעקב"
+async function sendReply(track = false) {
   const d = S.detail; if (!d || S.sending) return;
   const id = d.id;
   const body = ($('#reply-body').value || '').trim();
@@ -628,9 +653,11 @@ async function sendReply() {
   const files = filesOf(id);
   const total = files.reduce((a, f) => a + f.size, 0);
   if (total > MAX_TOTAL) return toast('הקבצים גדולים מדי יחד (מעל 24MB). הסירו חלק מהם ונסו שוב.', 'err');
-  const fd = new FormData(); fd.append('body', body); if (other) fd.append('to', to); files.forEach(f => fd.append('files', f));
+  const fd = new FormData(); fd.append('body', body); if (other) fd.append('to', to);
+  track = track && d.status !== 'escalated'; if (track) fd.append('track', '1');
+  files.forEach(f => fd.append('files', f));
 
-  S.sending = id; delete S.sendErr[id]; delete S.sentOk[id];
+  S.sending = id; S.sendTrack = track; delete S.sendErr[id]; delete S.sentOk[id];
   S.sendProgress = files.length ? { stage: 'upload', loaded: 0, total } : { stage: 'send' };
   renderFiles(); renderSendState();
   try {
@@ -640,7 +667,7 @@ async function sendReply() {
     });
     S.sending = null; S.sendProgress = null;
     delete S.drafts[id]; delete S.toBy[id]; S.filesBy[id] = []; S.sentOk[id] = to;
-    toast(`התשובה נשלחה ל-${other ? to : d.fromName}`, 'ok');
+    toast(`התשובה נשלחה ל-${other ? to : d.fromName}` + (track ? ' · הפניה במעקב' : ''), 'ok');
     if (S.detail && S.detail.id === id) { S.detail = res; renderDetail(); }
     loadList().catch(() => {});
   } catch (err) {
@@ -702,13 +729,15 @@ async function act(action) {
   if (action === 'back') { $('#layout').classList.remove('show-detail'); return; }
   if (action === 'escalate') { $('#esc-note').value = ''; $('#dlg-escalate').returnValue = ''; $('#dlg-escalate').showModal(); return; }
   if (action === 'assign') return openAssign();
-  const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן כטופל', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
+  const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן: טופל – הושלם', 'handled-track': 'סומן: טופל – במעקב',
+    'track-on': 'הפניה עברה למעקב', 'track-off': 'סומן: טופל – הושלם', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
   if (action === 'release' && ($('#reply-body')?.value.trim() || filesOf(d.id).length) && !confirm('יש טיוטה שלא נשלחה. לשחרר את הפניה בכל זאת? (הטיוטה תישמר)')) return;
   const clicked = document.querySelector(`[data-act="${action}"]`);
   document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
   if (clicked) clicked.innerHTML = '<span class="spin"></span> ' + clicked.textContent.replace(/^\S+\s/, '');
   try {
-    S.detail = await api(`/inquiries/${encodeURIComponent(d.id)}/${action}`, { method: 'POST' });
+    const call = { 'handled-track': ['handled', { track: true }], 'track-on': ['tracking', { on: true }], 'track-off': ['tracking', { on: false }] }[action] || [action];
+    S.detail = await api(`/inquiries/${encodeURIComponent(d.id)}/${call[0]}`, { method: 'POST', json: call[1] });
     delete S.sentOk[d.id];
     toast(msgs[action] || 'עודכן', 'ok');
     if (S.detail.hidden) { S.detail = null; S.selId = null; $('#layout').classList.remove('show-detail'); }
@@ -775,6 +804,7 @@ function bindApp() {
     if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? 'הצג היסטוריה קודמת' : 'הסתר היסטוריה'; return; }
     const rm = e.target.closest('[data-rm]'); if (rm) { filesOf(S.detail.id).splice(+rm.dataset.rm, 1); renderFiles(); return; }
     if (e.target.closest('#note-add')) return addNote();
+    if (e.target.closest('#send-track-btn')) return sendReply(true);
     const nd = e.target.closest('[data-note-del]');
     if (nd) {
       if (!confirm('למחוק את ההערה?')) return;
@@ -782,7 +812,7 @@ function bindApp() {
       catch (err) { toast(err.message, 'err'); }
       return;
     }
-    if (e.target.closest('#retry-btn')) return sendReply();
+    if (e.target.closest('#retry-btn')) return sendReply(!!S.sendTrack);
     if (e.target.closest('#reply-to-reset')) { delete S.toBy[S.detail.id]; $('#reply-to').value = defTo(S.detail); $('#reply-to-reset').hidden = true; $('#reply-to-note').hidden = true; return; }
     if (e.target.closest('#err-x')) { delete S.sendErr[S.detail.id]; renderSendState(); return; }
     const c = e.target.closest('.cat-toggle');

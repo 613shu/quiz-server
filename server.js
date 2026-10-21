@@ -100,7 +100,8 @@ app.get('/api/inquiries', h(req => ({
 app.get('/api/inquiries/:id', h(req => engine.detail(engine.get(req.params.id, req.user), req.user)));
 app.post('/api/inquiries/:id/take', h(req => engine.take(req.params.id, req.user)));
 app.post('/api/inquiries/:id/release', h(req => engine.release(req.params.id, req.user)));
-app.post('/api/inquiries/:id/handled', h(req => engine.markHandled(req.params.id, req.user)));
+app.post('/api/inquiries/:id/handled', h(req => engine.markHandled(req.params.id, req.user, !!(req.body && req.body.track))));
+app.post('/api/inquiries/:id/tracking', h(req => engine.setTracking(req.params.id, req.user, !!(req.body && req.body.on))));
 app.post('/api/inquiries/:id/reopen', h(req => engine.reopen(req.params.id, req.user)));
 app.post('/api/inquiries/:id/ignore', h(req => engine.ignore(req.params.id, req.user)));
 app.post('/api/inquiries/:id/categories', h(req => engine.setCategories(req.params.id, req.body.categories || [], req.user)));
@@ -176,7 +177,7 @@ app.post('/api/inquiries/:id/reply', uploadFiles, h(req => {
   const files = (req.files || []).map(f => ({
     name: Buffer.from(f.originalname, 'latin1').toString('utf8'), type: f.mimetype, size: f.size, buffer: f.buffer,
   }));
-  return engine.reply(req.params.id, req.user, body, files, req.body.to);
+  return engine.reply(req.params.id, req.user, body, files, req.body.to, req.body.track === '1');
 }));
 
 app.get('/api/attachments/:id', async (req, res) => {

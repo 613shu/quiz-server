@@ -682,3 +682,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .hbar-t { min-width: 60px; }
 }
 @media (max-width: 900px) { .range .seg { flex-wrap: wrap; overflow: visible; } .range .seg-b { flex: 1 0 30%; } }
+
+/* ---------- טופלו: הושלם / במעקב ---------- */
+.btn.teal { background: color-mix(in srgb, var(--teal) 16%, transparent); color: var(--teal); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--teal) 35%, transparent); }
+.pill.tracking { color: #9ff0e4; background: color-mix(in srgb, var(--teal) 17%, transparent); }
+.pill.track-age { color: var(--teal); background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 40%, transparent); font-weight: 600; }
+.pill.from-track { color: #9ff0e4; background: color-mix(in srgb, var(--teal) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 30%, transparent); }
+.pill .i { width: 13px; height: 13px; }
+/* שני כפתורי הסימון צמודים, כמו מתג אחד */
+.done-split { display: inline-flex; border-radius: 12px; overflow: hidden; }
+.done-split .btn { border-radius: 0; }
+.done-split .btn:first-child { border-start-start-radius: 12px; border-end-start-radius: 12px; }
+.done-split .btn:last-child { border-start-end-radius: 12px; border-end-end-radius: 12px; }
+.done-split .btn + .btn { margin-inline-start: -1.5px; }
+.done-split .btn .i, .d-actions .btn .i { width: 16px; height: 16px; }
+
+/* שני כפתורי שליחה: שליחה (הושלם) / שליחה והשארה במעקב */
+.c-btns .send-track .i { width: 16px; height: 16px; }
+@media (max-width: 600px) { .c-btns { flex-wrap: wrap; justify-content: flex-end; } .c-btns .send-track { order: 2; } }

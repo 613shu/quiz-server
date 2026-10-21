@@ -6,7 +6,7 @@ const { extractForwardedSender, extractAttachment } = require('./mail/parse');
 const { splitHistory, bodyKey } = require('./mail/history');
 
 const L = {
-  done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', notEnglish: 'KOH/not-english',
+  done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', track: 'KOH/track', notEnglish: 'KOH/not-english',
   free: 'KOH/free', assigned: 'KOH/assigned',
   // KOH/by/<key> = מי שהפניה שלו. נשאר גם אחרי המענה – כדי שתגובה חוזרת של הלקוח תגיע לאותו חבר צוות.
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
@@ -237,6 +237,12 @@ class Engine {
     // ממתינה לנו: ההודעה האחרונה היא של הלקוח
     const waiting = !lastIsOut && (status === 'new' || status === 'in_progress' || (status === 'escalated' && mgr === 'new'));
     const assigned = status === 'in_progress' && labels.has(L.assigned);
+    // טופלה – במעקב: הנציגה סימנה שמחכים ללקוח (למשל ביקשנו קובץ). בלי סימון = טופלה – הושלם.
+    const tracking = status === 'handled' && labels.has(L.track);
+    // הלקוח חזר על פניה שהייתה במעקב
+    const fromTracking = returned && labels.has(L.track);
+    // "תגובה נוספת" לפניה שהייתה במעקב (הלקוח עוד לא חזר) – בתשובה מוצע להשאיר במעקב
+    const trackDefault = status === 'in_progress' && labels.has(L.track) && !returned;
 
     const manualCats = [...labels].filter(l => l.startsWith('KOH/cat/')).map(l => l.slice(8)).filter(k => this.catKeys.has(k));
     // הודעות מערכת (Synchroline, MailAdmin, Charidy Support…) – ישר לקטגוריה "הודעות מערכת"
@@ -272,7 +278,7 @@ class Engine {
       fromName: customer.name || customer.address,
       fromEmail: customer.address,
       replyTarget,
-      status, mgr, assignee, returned, waiting, assigned, categories,
+      status, mgr, assignee, returned, waiting, assigned, tracking, fromTracking, trackDefault, categories,
       lastIncoming: lastIn.date,
       lastActivity: pend.length ? pend[pend.length - 1].date : last.date,
       uids: msgs.map(m => m.uid),
@@ -327,7 +333,7 @@ class Engine {
     return {
       id: t.id, subject: t.subject, fromName: t.fromName, fromEmail: t.fromEmail,
       status: t.status, mgr: t.mgr, assignee: t.assignee, assigneeName: t.assignee ? this.userName(t.assignee) : null,
-      returned: t.returned, assigned: t.assigned, waiting: t.waiting, overdue, categories: t.categories,
+      returned: t.returned, assigned: t.assigned, tracking: t.tracking, fromTracking: t.fromTracking, waiting: t.waiting, overdue, categories: t.categories,
       lastIncoming: t.lastIncoming, lastActivity: t.lastActivity,
       messageCount: t.messages.length,
       hasAttachments: t.messages.some(m => m.attachments.length),
@@ -348,6 +354,7 @@ class Engine {
       ...this.summary(t),
       messages: t.messages,
       replyTo: t.replyTarget.address,
+      trackDefault: t.trackDefault,
       events: [...this.oldLog, ...this.log].filter(e => t.ids.includes(e.t)).map(e => ({ at: e.at, user: e.user ? this.userName(e.user) : null, userKey: e.user, action: e.action, text: e.text })),
       notes: this.notesFor(t, user),
     };
@@ -366,11 +373,11 @@ class Engine {
     return (!from || d >= from) && (!to || d <= to);
   }
 
-  // view: open (כללי) | mine | member (מנהל) | handled | escalated | ignored | overdue
-  // sub (ל-mine/member): open | returned | overdue | done
+  // view: open (כללי) | mine | member (מנהל) | handled (טופלו – הושלם) | tracking (טופלו – במעקב) | escalated | ignored | overdue
+  // sub (ל-mine/member): open | returned | overdue | tracking | done
   list({ view = 'open', sub = 'open', member, category, q, from, to }, user) {
     const mgr = this.isManager(user);
-    if (['handled', 'escalated', 'ignored', 'overdue', 'member'].includes(view) && !mgr) throw new AppError(403, 'רק למנהל');
+    if (['handled', 'tracking', 'escalated', 'ignored', 'overdue', 'member'].includes(view) && !mgr) throw new AppError(403, 'רק למנהל');
     const who = view === 'member' ? member : user.key;
     const all = [...this.threads().values()];
     const personal = t => t.assignee === who;
@@ -378,13 +385,15 @@ class Engine {
       open: t => t.status === 'in_progress' && personal(t),
       returned: t => t.status === 'in_progress' && personal(t) && (t.returned || t.assigned),
       overdue: t => t.status === 'in_progress' && personal(t) && this.summary(t).overdue,
-      done: t => t.status === 'handled' && personal(t) && this.inRange(t.lastActivity, from, to),
+      tracking: t => t.tracking && personal(t),
+      done: t => t.status === 'handled' && !t.tracking && personal(t) && this.inRange(t.lastActivity, from, to),
     };
     const f = {
       open: mgr ? (t => t.status === 'new' || t.status === 'in_progress') : (t => t.status === 'new'),
       mine: subF[sub] || subF.open,
       member: subF[sub] || subF.open,
-      handled: t => t.status === 'handled' && this.inRange(t.lastActivity, from, to),
+      handled: t => t.status === 'handled' && !t.tracking && this.inRange(t.lastActivity, from, to),
+      tracking: t => t.tracking,
       escalated: t => t.status === 'escalated',
       ignored: t => t.status === 'ignored',
       overdue: t => this.summary(t).overdue,
@@ -398,7 +407,7 @@ class Engine {
     let subCounts = null;
     if (view === 'mine' || view === 'member') {
       subCounts = {};
-      for (const k of Object.keys(subF)) subCounts[k] = k === 'done' ? all.filter(t => t.status === 'handled' && personal(t)).length : all.filter(subF[k]).length;
+      for (const k of Object.keys(subF)) subCounts[k] = k === 'done' ? all.filter(t => t.status === 'handled' && !t.tracking && personal(t)).length : all.filter(subF[k]).length;
     }
 
     if (category) items = items.filter(t => t.categories.includes(category));
@@ -406,15 +415,15 @@ class Engine {
       const s = q.trim().toLowerCase();
       items = items.filter(t => [t.subject, t.fromName, t.fromEmail, ...t.messages.map(m => m.body)].some(x => (x || '').toLowerCase().includes(s)));
     }
-    const key = (sub === 'done' || view === 'handled') ? 'lastActivity' : 'lastIncoming';
+    const key = (sub === 'done' || sub === 'tracking' || view === 'handled' || view === 'tracking') ? 'lastActivity' : 'lastIncoming';
     items.sort((a, b) => b[key].localeCompare(a[key]));
     return { items: items.map(t => this.summary(t)), byCategory, subCounts };
   }
 
   counts(user) {
     const mgr = this.isManager(user), me = user.key, today = ilDay(new Date().toISOString());
-    const c = { general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0,
-      handled: 0, escalated: 0, escalatedOpen: 0, ignored: 0, overdue: 0 };
+    const c = { general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0,
+      handled: 0, tracking: 0, escalated: 0, escalatedOpen: 0, ignored: 0, overdue: 0 };
     for (const t of this.threads().values()) {
       const s = this.summary(t);
       if (t.status === 'new') c.general++;
@@ -423,9 +432,13 @@ class Engine {
         if (t.returned || t.assigned) c.mineReturned++;
         if (s.overdue) c.mineOverdue++;
       }
-      if (t.status === 'handled' && t.assignee === me) { c.mineDone++; if (ilDay(t.lastActivity) === today) c.mineDoneToday++; }
+      if (t.status === 'handled' && t.assignee === me) {
+        if (t.tracking) c.mineTracking++;
+        else c.mineDone++;
+        if (ilDay(t.lastActivity) === today) c.mineDoneToday++;
+      }
       if (!mgr) continue;
-      c[t.status]++;
+      if (t.tracking) c.tracking++; else c[t.status]++;
       if (t.status === 'new' || t.status === 'in_progress') c.open++;
       if (t.status === 'escalated' && t.mgr !== 'answered') c.escalatedOpen++;
       if (s.overdue) c.overdue++;
@@ -502,15 +515,31 @@ class Engine {
     });
   }
 
-  markHandled(id, user) {
+  // track = true → "טופלה – במעקב" (מחכים ללקוח); אחרת "טופלה – הושלם"
+  markHandled(id, user, track = false) {
     return this.locked(id, async () => {
       const t = this.get(id, user), mgr = this.isManager(user);
       if (t.status === 'in_progress' && t.assignee !== user.key && !mgr) throw new AppError(409, `הפניה בטיפול של ${this.userName(t.assignee)}`);
       await this.p.modifyLabels([t.lastUid], [L.done], [L.reopen, L.followup]);
+      await this.p.modifyLabels(t.uids, track ? [L.track] : [], track ? [] : [L.track]);
       // נשארת של מי שטיפל בה (כדי שתגובה חוזרת תגיע אליו). בתיקיית המנהל / בלי מטפל – של מי שסימן.
       await this.setOwner(t, t.status === 'escalated' || !t.assignee ? user.key : t.assignee);
       await this.p.modifyLabels(t.uids, [], [L.esc, L.assigned]);
-      this.addLog(id, user, 'handled', t.status === 'escalated' ? 'סימן/ה כטופל (הוסרה מתיקיית המנהל)' : 'סימן/ה כטופל');
+      const what = track ? 'סימן/ה כטופל – במעקב' : 'סימן/ה כטופל – הושלם';
+      this.addLog(id, user, 'handled', t.status === 'escalated' ? `${what} (הוסרה מתיקיית המנהל)` : what);
+      return this.refresh(id, user);
+    });
+  }
+
+  // פניה שכבר טופלה: מעבר בין "הושלם" ל"במעקב" בלי לשלוח כלום
+  setTracking(id, user, on) {
+    return this.locked(id, async () => {
+      const t = this.get(id, user), mgr = this.isManager(user);
+      if (t.status !== 'handled') throw new AppError(400, 'אפשר לסמן מעקב רק לפניה שטופלה');
+      if (t.assignee && t.assignee !== user.key && !mgr) throw new AppError(403, `הפניה של ${this.userName(t.assignee)}`);
+      if (!!t.tracking === !!on) return this.refresh(id, user);
+      await this.p.modifyLabels(t.uids, on ? [L.track] : [], on ? [] : [L.track]);
+      this.addLog(id, user, 'tracking', on ? 'העביר/ה ל"טופלו – במעקב"' : 'סימן/ה "טופלו – הושלם" (הוסר מהמעקב)');
       return this.refresh(id, user);
     });
   }
@@ -520,7 +549,7 @@ class Engine {
     return this.locked(id, async () => {
       if (!this.isManager(user)) throw new AppError(403, 'רק המנהל יכול להחזיר פניה לכללי');
       const t = this.get(id, user);
-      await this.p.modifyLabels(t.uids, [L.free], [L.done, L.esc, L.ignore, L.followup, L.assigned, ...this.byLabels()]);
+      await this.p.modifyLabels(t.uids, [L.free], [L.done, L.esc, L.ignore, L.followup, L.track, L.assigned, ...this.byLabels()]);
       if (t.raw.length && this.isOut(t.raw[t.raw.length - 1])) await this.p.modifyLabels([t.lastUid], [L.reopen, L.keep]);
       else await this.p.modifyLabels([t.lastUid], [L.keep]);
       this.addLog(id, user, 'reopen', t.status === 'escalated' ? 'החזיר/ה מתיקיית המנהל לפניות הכלליות' : 'החזיר/ה לפניות הכלליות');
@@ -536,7 +565,7 @@ class Engine {
       const t = this.get(id, user);
       if (t.assignee === toKey && t.status === 'in_progress') throw new AppError(409, `הפניה כבר אצל ${this.userName(toKey)}`);
       await this.setOwner(t, toKey);
-      await this.p.modifyLabels(t.uids, toKey === user.key ? [] : [L.assigned], [L.esc, L.ignore, L.done, L.followup]);
+      await this.p.modifyLabels(t.uids, toKey === user.key ? [] : [L.assigned], [L.esc, L.ignore, L.done, L.followup, L.track]);
       // פניה שכבר נענתה – נפתחת מחדש אצל מי שקיבל/ה אותה
       if (t.raw.length && this.isOut(t.raw[t.raw.length - 1])) await this.p.modifyLabels([t.lastUid], [L.reopen, L.keep]);
       else await this.p.modifyLabels([t.lastUid], [L.keep]);
@@ -574,7 +603,8 @@ class Engine {
 
   // מענה ללקוח באותה שרשרת מייל
   // toAddress – רק אם המשתמש/ת שינה את הנמען; ריק = הפונה (שולח ההודעה האחרונה)
-  reply(id, user, body, files, toAddress) {
+  // track = true → אחרי השליחה הפניה ב"טופלו – במעקב"; אחרת "טופלו – הושלם" (ברירת מחדל)
+  reply(id, user, body, files, toAddress, track = false) {
     return this.locked(id, async () => {
       const t = this.get(id, user);
       if (!['in_progress', 'escalated'].includes(t.status) || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "אני מטפל/ת בזה"');
@@ -617,8 +647,9 @@ class Engine {
       this.pending.set(t.id, pend);
       // המייל כבר נשלח – גם אם עדכון התוויות נכשל, לא מחזירים שגיאה (אחרת ישלחו שוב).
       // הבעלות (KOH/by) נשארת – תגובה חוזרת של הלקוח תגיע לאותו חבר צוות.
-      await this.p.modifyLabels(t.uids, [], [L.reopen, L.followup, L.assigned]).catch(e => console.error('[reply] labels', e.message));
-      this.addLog(id, user, 'reply', same ? `השיב/ה ל-${toText}` : `השיב/ה ל-${toText} (נמענים שונים מברירת המחדל – הפונה ${t.replyTarget.address})`);
+      const tr = track && t.status !== 'escalated';
+      await this.p.modifyLabels(t.uids, tr ? [L.track] : [], [L.reopen, L.followup, L.assigned, ...(tr ? [] : [L.track])]).catch(e => console.error('[reply] labels', e.message));
+      this.addLog(id, user, 'reply', (same ? `השיב/ה ל-${toText}` : `השיב/ה ל-${toText} (נמענים שונים מברירת המחדל – הפונה ${t.replyTarget.address})`) + (tr ? ' · טופלו – במעקב' : ''));
       return this.refresh(id, user);
     });
   }
