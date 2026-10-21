@@ -701,17 +701,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .c-btns .send-track .i { width: 16px; height: 16px; }
 @media (max-width: 600px) { .c-btns { flex-wrap: wrap; justify-content: flex-end; } .c-btns .send-track { order: 2; } }
 
-/* "טופלו" בראש הקטגוריות – לצפייה וחיפוש בכל הפניות שטופלו */
-.chip.done-chip::before { display: none; }
-.chip.done-chip .i { width: 15px; height: 15px; color: var(--green); }
-.chip.done-chip.active .i { color: #fff; }
-.chip-sep { height: 1px; background: var(--line); margin: 5px 4px; flex: none; }
-.lh-done { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); margin-bottom: 8px; }
-.lh-done > .i { color: var(--green); width: 16px; height: 16px; }
-.lh-done b { color: var(--ink); }
-.lh-done .btn { margin-inline-start: auto; }
-.cat-toggle:disabled { cursor: default; opacity: .75; }
-@media (max-width: 900px) { .chip-sep { width: 1px; height: auto; margin: 4px 2px; } }
 
 /* מסמכים בהעברה למנהל */
 .esc-drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
@@ -722,3 +711,5 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .esc-drop .files { flex-basis: 100%; padding: 2px 0 0; }
 .note .n-files { margin-top: 8px; }
 .note .n-files-h { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+
+.cat-toggle:disabled { cursor: default; opacity: .75; }

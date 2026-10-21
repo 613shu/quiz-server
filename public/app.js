@@ -250,29 +250,21 @@ function renderTabs() {
   $('#stats').hidden = S.screen !== 'inbox';
 }
 
-// "טופלו" – בראש הקטגוריות (לחברות הצוות): כל הפניות שטופלו לצפייה וחיפוש. לפי התצוגה: כל הצוות / רק שלי.
+// "טופלו" – תגית ראשונה ברשימת הקטגוריות, כמו כל תגית (לחברות הצוות): הפניות שטופלו לצפייה וחיפוש.
+// לפי התצוגה: בפניות הכלליות – של כל הצוות; ב"הפניות שלי" – רק שלי.
 const doneOn = () => S.done && !isMgr() && (S.view === 'open' || S.view === 'mine');
 function renderChips() {
-  const by = S.byCategory || {}, c = S.counts || {};
+  const by = S.byCategory || {}, c = S.counts || {}, d = doneOn();
   const n = S.view === 'mine' ? (c.mineDone || 0) + (c.mineTracking || 0) : c.handledAll || 0;
-  const doneBtn = isMgr() || !(S.view === 'open' || S.view === 'mine') ? ''
-    : `<button class="chip done-chip ${doneOn() ? 'active' : ''}" data-done="1" style="--c:var(--green)" aria-pressed="${doneOn()}"
-        title="${S.view === 'mine' ? 'הפניות שלי שטופלו' : 'כל הפניות שטופלו בצוות – לצפייה וחיפוש'}">${ic('check')}<span>טופלו</span>${n ? `<span class="n">${n}</span>` : ''}</button><div class="chip-sep"></div>`;
-  $('#chips').innerHTML = doneBtn + `<button class="chip ${!S.category ? 'active' : ''}" data-cat="" style="--c:var(--ink-2)">הכל</button>` +
-    S.cfg.categories.map(c => `<button class="chip ${S.category === c.key ? 'active' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}${by[c.key] ? `<span class="n">${by[c.key]}</span>` : ''}</button>`).join('');
+  const doneChip = isMgr() || !(S.view === 'open' || S.view === 'mine') ? ''
+    : `<button class="chip ${d ? 'active' : ''}" data-done="1" style="--c:var(--green)">טופלו${n ? `<span class="n">${n}</span>` : ''}</button>`;
+  $('#chips').innerHTML = doneChip + `<button class="chip ${!S.category && !d ? 'active' : ''}" data-cat="" style="--c:var(--ink-2)">הכל</button>` +
+    S.cfg.categories.map(c => `<button class="chip ${S.category === c.key && !d ? 'active' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}${by[c.key] && !d ? `<span class="n">${by[c.key]}</span>` : ''}</button>`).join('');
 }
 
-// כותרת הרשימה: לשוניות משנה של "הפניות שלי" / הפניות של חבר צוות (מנהל), וטווח תאריכים לטופלו
 function renderListHead() {
   const el = $('#list-head');
   const personal = S.view === 'mine' || S.view === 'member';
-  if (doneOn()) {
-    el.hidden = false;
-    el.innerHTML = `<div class="lh-done">${ic('check')}<span><b>${S.view === 'mine' ? 'הפניות שלי שטופלו' : 'כל הפניות שטופלו'}</b>${S.view === 'mine' ? '' : ' · של כל הצוות, לצפייה וחיפוש'}</span>
-        <button class="btn ghost sm" data-done-off="1">סגירה ✕</button></div>
-      <div class="seg small">${RANGES.map(([k, l]) => `<button class="seg-b ${S.range === k ? 'on' : ''}" data-range="${k}">${l}</button>`).join('')}</div>`;
-    return;
-  }
   const ranged = (personal && S.sub === 'done') || S.view === 'handled';
   if (!personal && !ranged) { el.hidden = true; el.innerHTML = ''; return; }
   el.hidden = false;
@@ -732,12 +724,6 @@ function setView(v, sub, member) {
   return loadList();
 }
 
-function setDone(on) {
-  S.done = on; S.range = ''; S.selId = null; S.detail = null; S._listHtml = null;
-  renderDetail(); $('#list').scrollTop = 0;
-  return loadList().catch(err => toast(err.message, 'err'));
-}
-
 async function openInquiry(id) {
   S.selId = id;
   S.detail = await api('/inquiries/' + encodeURIComponent(id));
@@ -837,13 +823,12 @@ function bindApp() {
   $('#main-nav').addEventListener('click', e => { const b = e.target.closest('[data-screen]'); if (b && b.dataset.screen !== S.screen) showScreen(b.dataset.screen); });
   $('#list-head').addEventListener('click', e => {
     const sc = e.target.closest('[data-screen]'); if (sc) return showScreen(sc.dataset.screen);
-    if (e.target.closest('[data-done-off]')) return setDone(false);
     const sb = e.target.closest('[data-sub]'); if (sb) return setView(S.view, sb.dataset.sub, S.member);
     const rg = e.target.closest('[data-range]'); if (rg) { S.range = rg.dataset.range; loadList(); }
   });
   $('#chips').addEventListener('click', e => {
-    if (e.target.closest('[data-done]')) return setDone(!doneOn());
-    const b = e.target.closest('[data-cat]'); if (b) { S.category = b.dataset.cat || null; loadList(); }
+    if (e.target.closest('[data-done]')) { S.done = true; S.category = null; S._listHtml = null; return loadList().catch(err => toast(err.message, 'err')); }
+    const b = e.target.closest('[data-cat]'); if (b) { S.done = false; S.category = b.dataset.cat || null; loadList(); }
   });
   let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { S.q = e.target.value; loadList(); }, 250); });
   $('#list').addEventListener('click', e => { const li = e.target.closest('[data-id]'); if (li) openInquiry(li.dataset.id).catch(err => toast(err.message, 'err')); });
