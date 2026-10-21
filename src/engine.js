@@ -346,8 +346,8 @@ class Engine {
     const mgr = this.isManager(user);
     return this.notes.filter(n => t.ids.includes(n.t))
       // בפניה שטופלה – כל הצוות רואה את ההערות (לקריאה, כחלק מהחיפוש בפניות שטופלו)
-      .filter(n => mgr || n.user === user.key || t.assignee === user.key || t.status === 'handled')
-      .map(n => ({ id: n.id, at: n.at, user: this.userName(n.user), userKey: n.user, text: n.text, kind: n.kind || 'note', canDelete: mgr || n.user === user.key }));
+      .filter(n => this.noteVisible(n, t, user))
+      .map(n => ({ id: n.id, at: n.at, user: this.userName(n.user), userKey: n.user, text: n.text, kind: n.kind || 'note', canDelete: mgr || n.user === user.key, files: this.noteFiles(n) }));
   }
 
   detail(t, user) {
@@ -677,25 +677,52 @@ class Engine {
   }
 
   // העברה למנהל: רק תיוג. הפניה עוברת לתיקיית "הועבר למנהל" (רק המנהל רואה אותה). ההערה נשמרת כהערה פנימית.
-  escalate(id, user, note) {
+  // files – מסמכים למנהל: נשמרים בתיבה (KOH-System) ומוצגים בהערה של ההעברה
+  escalate(id, user, note, files = []) {
     return this.locked(id, async () => {
       const t = this.getEdit(id, user), mgr = this.isManager(user);
       if (t.status === 'escalated') throw new AppError(409, 'הפניה כבר בתיקיית המנהל');
       if (t.status === 'in_progress' && t.assignee !== user.key && !mgr) throw new AppError(409, `הפניה בטיפול של ${this.userName(t.assignee)}`);
+      let n = null;
+      if (note || files.length) {
+        n = this.makeNote(t.id, user, note || '', 'escalate', !!files.length);
+        if (files.length) {
+          // קודם שומרים את הקבצים – אם זה נכשל, הפניה לא מועברת (ולא הולכים לאיבוד מסמכים)
+          try { await this.p.saveFiles(n.id, t.id, files); }
+          catch (e) { throw new AppError(502, `שמירת המסמכים נכשלה, הפניה לא הועברה: ${e.message}`); }
+          n.files = files.map(f => ({ name: f.name, type: f.type, size: f.size }));
+        }
+      }
       await this.p.modifyLabels(t.uids, [L.esc], [...this.byLabels(), L.free, L.assigned]);
-      if (note) this.pushNote(t.id, user, note, 'escalate');
-      this.addLog(id, user, 'escalate', 'העביר/ה למנהל');
+      if (n) { this.notes.push(n); this.saveStateSoon(); }
+      this.addLog(id, user, 'escalate', 'העביר/ה למנהל' + (files.length ? ` (צורפו ${files.length === 1 ? 'מסמך אחד' : files.length + ' מסמכים'})` : ''));
       return this.refresh(id, user);
     });
   }
 
   // ---------- הערות פנימיות ----------
-  pushNote(threadId, user, text, kind = 'note') {
+  makeNote(threadId, user, text, kind = 'note', allowEmpty = false) {
     text = String(text || '').trim();
-    if (!text) throw new AppError(400, 'ההערה ריקה');
+    if (!text && !allowEmpty) throw new AppError(400, 'ההערה ריקה');
     if (text.length > 2000) throw new AppError(400, 'ההערה ארוכה מדי (עד 2,000 תווים)');
-    this.notes.push({ id: 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: threadId, at: new Date().toISOString(), user: user.key, text, kind });
+    return { id: 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: threadId, at: new Date().toISOString(), user: user.key, text, kind };
+  }
+
+  pushNote(threadId, user, text, kind = 'note') {
+    this.notes.push(this.makeNote(threadId, user, text, kind));
     this.saveStateSoon();
+  }
+
+  // קבצים של הערה: מההודעה ששמורה בתיבה (עד שהסנכרון מביא אותה – רק השמות, בלי קישור)
+  noteFiles(n) {
+    if (!n.files) return [];
+    const rec = [...this.p.messages.values()].find(m => m.system === 'files' && m.note === n.id);
+    return rec ? rec.attachments.map(a => ({ id: `${rec.uid}-${a.index}`, name: a.name, type: a.type, size: a.size, inline: false }))
+      : n.files.map(f => ({ id: null, ...f }));
+  }
+
+  noteVisible(n, t, user) {
+    return this.isManager(user) || n.user === user.key || t.assignee === user.key || t.status === 'handled';
   }
 
   addNote(id, user, text) {
@@ -835,10 +862,13 @@ class Engine {
 
   async attachment(attId, user) {
     const [uid, idx] = String(attId).split('-').map(Number);
-    if (!this.p.messages.has(uid)) throw new AppError(404, 'הקובץ לא נמצא');
-    // רק מי שרואה את הפניה יכול לפתוח את הקבצים שלה
-    const t = [...this.threads().values()].find(x => x.uids.includes(uid));
-    if (!t || !this.canSee(t, user)) throw new AppError(403, 'אין גישה לקובץ הזה');
+    const rec = this.p.messages.get(uid);
+    if (!rec) throw new AppError(404, 'הקובץ לא נמצא');
+    // רק מי שרואה את הפניה יכול לפתוח את הקבצים שלה (ובקבצים של הערה – מי שרואה את ההערה)
+    const n = rec.system === 'files' ? this.notes.find(x => x.id === rec.note) : null;
+    if (rec.system && !n) throw new AppError(404, 'הקובץ לא נמצא');
+    const t = [...this.threads().values()].find(x => n ? x.ids.includes(n.t) : x.uids.includes(uid));
+    if (!t || !this.canSee(t, user) || (n && !this.noteVisible(n, t, user))) throw new AppError(403, 'אין גישה לקובץ הזה');
     const raw = await this.p.getRaw(uid);
     const a = raw && await extractAttachment(raw, idx);
     if (!a) throw new AppError(404, 'הקובץ לא נמצא');

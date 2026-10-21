@@ -105,7 +105,7 @@ app.post('/api/inquiries/:id/tracking', h(req => engine.setTracking(req.params.i
 app.post('/api/inquiries/:id/reopen', h(req => engine.reopen(req.params.id, req.user)));
 app.post('/api/inquiries/:id/ignore', h(req => engine.ignore(req.params.id, req.user)));
 app.post('/api/inquiries/:id/categories', h(req => engine.setCategories(req.params.id, req.body.categories || [], req.user)));
-app.post('/api/inquiries/:id/escalate', h(req => engine.escalate(req.params.id, req.user, (req.body.note || '').trim())));
+
 app.post('/api/inquiries/:id/assign', h(req => engine.assign(req.params.id, req.user, String(req.body.to || ''))));
 app.post('/api/inquiries/:id/notes', h(req => engine.addNote(req.params.id, req.user, req.body.text)));
 app.delete('/api/inquiries/:id/notes/:noteId', h(req => engine.deleteNote(req.params.id, req.params.noteId, req.user)));
@@ -171,6 +171,10 @@ const uploadFiles = (req, res, next) => upload.array('files', 10)(req, res, err 
   next();
 });
 
+// העברה למנהל – עם הערה ומסמכים (אופציונלי)
+app.post('/api/inquiries/:id/escalate', uploadFiles, h(req => engine.escalate(req.params.id, req.user, String(req.body.note || '').trim(), (req.files || []).map(f => ({
+  name: Buffer.from(f.originalname, 'latin1').toString('utf8'), type: f.mimetype, size: f.size, buffer: f.buffer,
+})))));
 app.post('/api/inquiries/:id/reply', uploadFiles, h(req => {
   const body = (req.body.body || '').trim();
   if (!body) throw new AppError(400, 'אי אפשר לשלוח מענה ריק');

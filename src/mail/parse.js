@@ -98,6 +98,7 @@ async function parseRaw(raw, meta = {}) {
     route: [h('return-path'), h('x-forwarded-for'), h('x-forwarded-to'), h('x-original-to'), h('delivered-to')].filter(Boolean).join(' ').toLowerCase(),
     author: h('x-koh-author'),
     system: h('x-koh-system'),
+    note: h('x-koh-note'),
     imported: !!h('x-koh-import'),
     attachments: fileParts(p).map((a, i) => ({
       index: i, name: a.filename || `קובץ-${i + 1}`, type: a.contentType, size: a.size, inline: !!a.related,

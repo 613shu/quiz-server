@@ -416,7 +416,8 @@ function timeline(d) {
     ...(d.notes || []).map(n => ({ at: n.at, rank: 3, html: `<div class="note" style="--c:${teamColor(n.userKey)}">
       <div class="n-head"><span class="n-tag">${n.kind === 'escalate' ? 'הערה בהעברה למנהל' : 'הערה פנימית'}</span><b>${esc(n.user)}</b><span class="n-time">${hm(n.at)}</span>
         ${n.canDelete && !(S.detail && S.detail.readOnly) ? `<button class="n-del" data-note-del="${esc(n.id)}" title="מחיקת ההערה">✕</button>` : ''}</div>
-      <div class="n-body">${esc(n.text)}</div>
+      ${n.text ? `<div class="n-body">${esc(n.text)}</div>` : ''}
+      ${n.files && n.files.length ? `<div class="n-files"><span class="n-files-h">${ic('clip')} ${n.files.length === 1 ? 'מסמך מצורף' : n.files.length + ' מסמכים מצורפים'}${n.files.some(f => !f.id) ? ' · נשמר בתיבה…' : ''}</span>${attList(n.files)}</div>` : ''}
       <div class="n-foot">לא נשלחה לתורם</div></div>` })),
   // כמו במייל: החדש למעלה. באותה שנייה (כותרת Date של מייל מעוגלת לשניות): "לקח לטיפול" מתחת לתשובה, פעולות אחרות מעליה
   ].sort((a, b) => b.at.slice(0, 19).localeCompare(a.at.slice(0, 19)) || b.rank - a.rank);
@@ -750,7 +751,7 @@ async function openInquiry(id) {
 async function act(action) {
   const d = S.detail;
   if (action === 'back') { $('#layout').classList.remove('show-detail'); return; }
-  if (action === 'escalate') { $('#esc-note').value = ''; $('#dlg-escalate').returnValue = ''; $('#dlg-escalate').showModal(); return; }
+  if (action === 'escalate') { $('#esc-note').value = ''; S.escFiles = []; renderEscFiles(); $('#dlg-escalate').returnValue = ''; $('#dlg-escalate').showModal(); return; }
   if (action === 'assign') return openAssign();
   const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן: טופל – הושלם', 'handled-track': 'סומן: טופל – במעקב',
     'track-on': 'הפניה עברה למעקב', 'track-off': 'סומן: טופל – הושלם', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
@@ -790,6 +791,29 @@ function openAssign() {
     ${avatar(u.name, teamColor(u.key), 'sm team')}<span>${esc(u.name)}${u.key === S.me.key ? ' (אני)' : ''}</span>${u.role === 'manager' ? '<span class="role-b">מנהל</span>' : ''}${u.key === d.assignee ? '<span class="cur-b">אצלו עכשיו</span>' : ''}</button>`).join('');
   $('#dlg-assign').returnValue = '';
   $('#dlg-assign').showModal();
+}
+
+// מסמכים שמצרפים בהעברה למנהל
+function renderEscFiles() {
+  const el = $('#esc-files'), files = S.escFiles || [];
+  const total = files.reduce((a, f) => a + f.size, 0);
+  $('#esc-pick-ic').innerHTML = ic('clip');
+  el.hidden = !files.length;
+  el.innerHTML = files.map((f, i) => `<span class="file"><span class="f-ic">${fileIcon(f.name, f.type)}</span>
+      <span class="f-name" title="${esc(f.name)}">${esc(f.name)}</span><span class="f-sz">${fmtSize(f.size)}</span>
+      <button type="button" data-esc-rm="${i}" title="הסרת הקובץ">✕</button></span>`).join('') +
+    (files.length ? `<span class="f-total ${total > MAX_TOTAL ? 'bad' : ''}">${files.length} ${files.length === 1 ? 'מסמך' : 'מסמכים'} · ${fmtSize(total)}${total > MAX_TOTAL ? ' – מעל 24MB, הסירו קבצים' : ''}</span>` : '');
+}
+function addEscFiles(list) {
+  const files = S.escFiles || (S.escFiles = []), problems = [];
+  for (const f of list) {
+    if (!f.size) { problems.push(`"${f.name}" ריק או שאינו קובץ`); continue; }
+    if (f.size > MAX_FILE) { problems.push(`"${f.name}" גדול מדי (${fmtSize(f.size)}). המקסימום לקובץ הוא 20MB`); continue; }
+    if (files.length >= MAX_FILES) { problems.push(`אפשר לצרף עד ${MAX_FILES} מסמכים`); break; }
+    if (!files.some(x => x.name === f.name && x.size === f.size)) files.push(f);
+  }
+  if (problems.length) toast(problems.join(' · '), 'err', 6000);
+  renderEscFiles();
 }
 
 async function addNote() {
@@ -875,14 +899,30 @@ function bindApp() {
 
   $('#dlg-escalate').addEventListener('close', async () => {
     if ($('#dlg-escalate').returnValue !== 'ok') return;
-    const t = toast('מעביר לתיקיית המנהל…', 'wait');
+    const files = S.escFiles || [];
+    const t = toast(files.length ? 'מעלה את המסמכים ומעביר למנהל…' : 'מעביר לתיקיית המנהל…', 'wait');
     document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
     try {
-      S.detail = await api(`/inquiries/${encodeURIComponent(S.detail.id)}/escalate`, { method: 'POST', json: { note: $('#esc-note').value } });
-      t.set('הפניה הועברה למנהל', 'ok');
+      const fd = new FormData(); fd.append('note', $('#esc-note').value); files.forEach(f => fd.append('files', f));
+      S.detail = await postWithProgress(`/inquiries/${encodeURIComponent(S.detail.id)}/escalate`, fd, (l, tot) => {
+        if (files.length && l >= 0 && tot > 0 && l < tot) t.set(`מעלה את המסמכים… ${Math.round(l / tot * 100)}%`, 'wait');
+      });
+      S.escFiles = [];
+      t.set(files.length ? `הפניה הועברה למנהל עם ${files.length === 1 ? 'מסמך אחד' : files.length + ' מסמכים'}` : 'הפניה הועברה למנהל', 'ok');
       if (S.detail.hidden) { S.detail = null; S.selId = null; $('#layout').classList.remove('show-detail'); }
       await loadList(); renderDetail();
     } catch (e) { t.set('ההעברה למנהל נכשלה: ' + e.message, 'err'); document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = false)); }
+  });
+
+  // צירוף מסמכים בדיאלוג ההעברה למנהל
+  $('#esc-file').addEventListener('change', e => { addEscFiles([...e.target.files]); e.target.value = ''; });
+  $('#esc-files').addEventListener('click', e => { const b = e.target.closest('[data-esc-rm]'); if (b) { S.escFiles.splice(+b.dataset.escRm, 1); renderEscFiles(); } });
+  const drop = $('#esc-drop');
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addEscFiles([...e.dataTransfer.files]); });
+  $('#dlg-escalate').querySelector('button[value="ok"]').addEventListener('click', e => {
+    if ((S.escFiles || []).reduce((a, f) => a + f.size, 0) > MAX_TOTAL) { e.preventDefault(); toast('המסמכים גדולים מדי יחד (מעל 24MB). הסירו חלק מהם.', 'err', 5000); }
   });
 
   $('#dlg-assign').addEventListener('close', async () => {

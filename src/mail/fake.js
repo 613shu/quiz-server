@@ -78,6 +78,12 @@ class FakeProvider extends EventEmitter {
   }
 
   async appendRaw(raw, box) { await this.add(raw, [box]); }
+  async saveFiles(noteId, threadId, files) {
+    const raw = await build({ from: config.GMAIL_USER, to: config.GMAIL_USER, subject: 'KOH dashboard files', text: noteId,
+      headers: { 'X-KOH-System': 'files', 'X-KOH-Note': noteId },
+      attachments: files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })) });
+    await this.add(raw, ['KOH-System']);
+  }
   async sync() {}
 
   async getRaw(uid) { return this.raws.get(uid); }

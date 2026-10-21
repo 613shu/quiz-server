@@ -293,6 +293,19 @@ class GmailProvider extends EventEmitter {
     ].join('\r\n');
   }
 
+  // קבצים שצורפו להערה פנימית (למשל בהעברה למנהל) – נשמרים כהודעת מערכת בתווית KOH-System
+  async saveFiles(noteId, threadId, files) {
+    if (!this.status.connected) throw new Error('אין חיבור לתיבה – הקבצים לא נשמרו');
+    const raw = await build({
+      from: { name: 'KOH System', address: config.GMAIL_USER }, to: config.GMAIL_USER,
+      subject: 'KOH dashboard files (do not delete)', text: `note ${noteId} / thread ${threadId}`,
+      headers: { 'X-KOH-System': 'files', 'X-KOH-Note': noteId },
+      attachments: files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })),
+    });
+    await this.client.append(STATE_BOX, raw, ['\\Seen']);
+    setTimeout(() => this.sync().catch(() => {}), 1500);
+  }
+
   async saveArchive(obj) {
     if (!this.status.connected) throw new Error('אין חיבור לתיבה');
     await this.client.append(STATE_BOX, this.systemRaw('archive', 'KOH dashboard log archive (do not delete)', obj), ['\\Seen']);

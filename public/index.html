@@ -80,6 +80,13 @@
       <label class="field">הערה למנהל (לא חובה · לא נשלחת לתורם)
         <textarea id="esc-note" rows="3" placeholder="למשל: תורם גדול, מבקש שיחה אישית"></textarea>
       </label>
+      <div class="field">מסמכים למנהל (לא חובה · לא נשלחים לתורם)
+        <div class="esc-drop" id="esc-drop">
+          <label class="btn ghost sm esc-pick"><span id="esc-pick-ic"></span> צירוף מסמכים<input type="file" id="esc-file" multiple hidden></label>
+          <span class="esc-hint">או גררו קבצים לכאן · עד 10 קבצים, 24MB</span>
+          <div class="files" id="esc-files" hidden></div>
+        </div>
+      </div>
       <div class="dlg-actions">
         <button value="ok" class="btn violet">העבר למנהל</button>
         <button value="cancel" class="btn ghost">ביטול</button>
