@@ -700,3 +700,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* שני כפתורי שליחה: שליחה (הושלם) / שליחה והשארה במעקב */
 .c-btns .send-track .i { width: 16px; height: 16px; }
 @media (max-width: 600px) { .c-btns { flex-wrap: wrap; justify-content: flex-end; } .c-btns .send-track { order: 2; } }
+
+/* "טופלו" בראש הקטגוריות – לצפייה וחיפוש בכל הפניות שטופלו */
+.chip.done-chip::before { display: none; }
+.chip.done-chip .i { width: 15px; height: 15px; color: var(--green); }
+.chip.done-chip.active .i { color: #fff; }
+.chip-sep { height: 1px; background: var(--line); margin: 5px 4px; flex: none; }
+.lh-done { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); margin-bottom: 8px; }
+.lh-done > .i { color: var(--green); width: 16px; height: 16px; }
+.lh-done b { color: var(--ink); }
+.lh-done .btn { margin-inline-start: auto; }
+.cat-toggle:disabled { cursor: default; opacity: .75; }
+@media (max-width: 900px) { .chip-sep { width: 1px; height: auto; margin: 4px 2px; } }

@@ -48,7 +48,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 
 const S = {
-  cfg: null, me: null, view: 'open', sub: 'open', member: null, range: '', screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {},
+  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {},
   items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
@@ -250,9 +250,15 @@ function renderTabs() {
   $('#stats').hidden = S.screen !== 'inbox';
 }
 
+// "טופלו" – בראש הקטגוריות (לחברות הצוות): כל הפניות שטופלו לצפייה וחיפוש. לפי התצוגה: כל הצוות / רק שלי.
+const doneOn = () => S.done && !isMgr() && (S.view === 'open' || S.view === 'mine');
 function renderChips() {
-  const by = S.byCategory || {};
-  $('#chips').innerHTML = `<button class="chip ${!S.category ? 'active' : ''}" data-cat="" style="--c:var(--ink-2)">הכל</button>` +
+  const by = S.byCategory || {}, c = S.counts || {};
+  const n = S.view === 'mine' ? (c.mineDone || 0) + (c.mineTracking || 0) : c.handledAll || 0;
+  const doneBtn = isMgr() || !(S.view === 'open' || S.view === 'mine') ? ''
+    : `<button class="chip done-chip ${doneOn() ? 'active' : ''}" data-done="1" style="--c:var(--green)" aria-pressed="${doneOn()}"
+        title="${S.view === 'mine' ? 'הפניות שלי שטופלו' : 'כל הפניות שטופלו בצוות – לצפייה וחיפוש'}">${ic('check')}<span>טופלו</span>${n ? `<span class="n">${n}</span>` : ''}</button><div class="chip-sep"></div>`;
+  $('#chips').innerHTML = doneBtn + `<button class="chip ${!S.category ? 'active' : ''}" data-cat="" style="--c:var(--ink-2)">הכל</button>` +
     S.cfg.categories.map(c => `<button class="chip ${S.category === c.key ? 'active' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}${by[c.key] ? `<span class="n">${by[c.key]}</span>` : ''}</button>`).join('');
 }
 
@@ -260,6 +266,13 @@ function renderChips() {
 function renderListHead() {
   const el = $('#list-head');
   const personal = S.view === 'mine' || S.view === 'member';
+  if (doneOn()) {
+    el.hidden = false;
+    el.innerHTML = `<div class="lh-done">${ic('check')}<span><b>${S.view === 'mine' ? 'הפניות שלי שטופלו' : 'כל הפניות שטופלו'}</b>${S.view === 'mine' ? '' : ' · של כל הצוות, לצפייה וחיפוש'}</span>
+        <button class="btn ghost sm" data-done-off="1">סגירה ✕</button></div>
+      <div class="seg small">${RANGES.map(([k, l]) => `<button class="seg-b ${S.range === k ? 'on' : ''}" data-range="${k}">${l}</button>`).join('')}</div>`;
+    return;
+  }
   const ranged = (personal && S.sub === 'done') || S.view === 'handled';
   if (!personal && !ranged) { el.hidden = true; el.innerHTML = ''; return; }
   el.hidden = false;
@@ -296,11 +309,12 @@ function renderList() {
   if (!S.items.length) {
     const clear = !S.q && !S.category;
     const msg = !clear ? 'לא נמצאו פניות'
+      : doneOn() ? 'אין עדיין פניות שטופלו'
       : S.view === 'open' ? 'אין פניות פתוחות – כל הכבוד!'
       : S.view === 'tracking' || S.sub === 'tracking' ? 'אין פניות במעקב כרגע'
       : (S.view === 'mine' || S.view === 'member') && S.sub !== 'done' ? (S.sub === 'open' ? 'אין פניות שממתינות לטיפול' : 'אין כאן כלום כרגע')
       : 'לא נמצאו פניות';
-    const good = clear && S.view !== 'handled' && S.sub !== 'done' && S.view !== 'tracking' && S.sub !== 'tracking';
+    const good = clear && !doneOn() && S.view !== 'handled' && S.sub !== 'done' && S.view !== 'tracking' && S.sub !== 'tracking';
     el.innerHTML = `<li class="empty-list"><div class="big">${ic(good ? 'check' : 'search')}</div>${msg}</li>`;
     S._listHtml = null;
     return;
@@ -437,6 +451,7 @@ function detailActions(d) {
   if (d.status === 'new') return B.take() + B.handled + pass + B.ignore;
   if (d.status === 'in_progress' && mine) return B.handled + pass + B.release;
   if (d.status === 'in_progress') return B.take(`קח ממנו לטיפול שלי`) + B.assign + B.reopen() + B.handled;
+  if (d.readOnly) return '';
   if (d.status === 'handled') {
     const canTrack = mgr || !d.assignee || d.assignee === me;
     const tr = !canTrack ? '' : d.tracking
@@ -476,6 +491,7 @@ function renderDetail() {
   let composer;
   if (mine) composer = composerHtml(d);
   else if (d.status === 'new' || (esc_ && !d.assignee)) composer = `<div class="locked">כדי לענות, לחצו <b>"אני מטפל/ת בזה"</b>. כך אף אחד אחר לא יענה במקביל.</div>`;
+  else if (d.readOnly) composer = `<div class="locked">${ic('eye')} צפייה בלבד – הפניה טופלה על ידי <b>${esc(d.assigneeName || 'הצוות')}</b>. אפשר לקרוא ולחפש, בלי לקחת או לענות.</div>`;
   else if (other) composer = `<div class="locked">${ic('lock')} <b>${esc(d.assigneeName)}</b> מטפל/ת בפניה הזו. אפשר לקרוא, אבל לא לענות.</div>`;
   else composer = '';
 
@@ -501,8 +517,8 @@ function renderDetail() {
       </div>
       ${actions ? `<div class="d-actions">${actions}</div>` : ''}
       <div class="d-cats"><span class="lbl">קטגוריה:</span>${S.cfg.categories.map(c =>
-        `<button class="cat-toggle ${d.categories.includes(c.key) ? 'on' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}</button>`).join('')}</div>
-      ${notesBox(d)}
+        `<button class="cat-toggle ${d.categories.includes(c.key) ? 'on' : ''}" data-cat="${c.key}" style="--c:${c.color}" ${d.readOnly ? 'disabled' : ''}>${esc(c.name)}</button>`).join('')}</div>
+      ${d.readOnly ? '' : notesBox(d)}
     </div>
     ${composer}
     <div class="convo" id="convo">${timeline(d)}</div>`;
@@ -680,6 +696,7 @@ async function sendReply(track = false) {
 // ---------- data ----------
 async function loadList() {
   const p = new URLSearchParams({ view: S.view, sub: S.sub });
+  if (doneOn()) p.set('done', '1');
   if (S.view === 'member') p.set('member', S.member);
   if (S.range !== '') { p.set('from', daysBack(+S.range)); p.set('to', daysBack(0)); }
   if (S.category) p.set('category', S.category);
@@ -706,12 +723,18 @@ function showScreen(name) {
 // מעבר לתצוגת פניות (גם מכרטיס בניהול מענה)
 function setView(v, sub, member) {
   S.view = v; S.sub = sub || 'open'; S.member = member || null;
-  if (v !== 'handled' && S.sub !== 'done') S.range = '';
+  if (v !== 'handled' && S.sub !== 'done' && !doneOn()) S.range = '';
   S.selId = null; S.detail = null; S._listHtml = null;
   if (S.screen !== 'inbox') showScreen('inbox');
   renderDetail();
   $('#list').scrollTop = 0;
   return loadList();
+}
+
+function setDone(on) {
+  S.done = on; S.range = ''; S.selId = null; S.detail = null; S._listHtml = null;
+  renderDetail(); $('#list').scrollTop = 0;
+  return loadList().catch(err => toast(err.message, 'err'));
 }
 
 async function openInquiry(id) {
@@ -790,10 +813,14 @@ function bindApp() {
   $('#main-nav').addEventListener('click', e => { const b = e.target.closest('[data-screen]'); if (b && b.dataset.screen !== S.screen) showScreen(b.dataset.screen); });
   $('#list-head').addEventListener('click', e => {
     const sc = e.target.closest('[data-screen]'); if (sc) return showScreen(sc.dataset.screen);
+    if (e.target.closest('[data-done-off]')) return setDone(false);
     const sb = e.target.closest('[data-sub]'); if (sb) return setView(S.view, sb.dataset.sub, S.member);
     const rg = e.target.closest('[data-range]'); if (rg) { S.range = rg.dataset.range; loadList(); }
   });
-  $('#chips').addEventListener('click', e => { const b = e.target.closest('[data-cat]'); if (b) { S.category = b.dataset.cat || null; loadList(); } });
+  $('#chips').addEventListener('click', e => {
+    if (e.target.closest('[data-done]')) return setDone(!doneOn());
+    const b = e.target.closest('[data-cat]'); if (b) { S.category = b.dataset.cat || null; loadList(); }
+  });
   let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { S.q = e.target.value; loadList(); }, 250); });
   $('#list').addEventListener('click', e => { const li = e.target.closest('[data-id]'); if (li) openInquiry(li.dataset.id).catch(err => toast(err.message, 'err')); });
 

@@ -355,6 +355,7 @@ class Engine {
       messages: t.messages,
       replyTo: t.replyTarget.address,
       trackDefault: t.trackDefault,
+      readOnly: !this.canEdit(t, user),
       events: [...this.oldLog, ...this.log].filter(e => t.ids.includes(e.t)).map(e => ({ at: e.at, user: e.user ? this.userName(e.user) : null, userKey: e.user, action: e.action, text: e.text })),
       notes: this.notesFor(t, user),
     };
@@ -362,10 +363,17 @@ class Engine {
 
   // ---------- הרשאות צפייה ----------
   // מנהל: הכול. חבר צוות: פניות כלליות (חדשות בלי מטפל/ת) + הפניות שלו (בטיפול / טופלו על ידו).
+  // בנוסף: כל הפניות שטופלו (של כל הצוות) – לצפייה וחיפוש בלבד (canEdit).
   canSee(t, user) {
     if (this.isManager(user)) return true;
-    if (t.status === 'new') return true;
+    if (t.status === 'new' || t.status === 'handled') return true;
     return (t.status === 'in_progress' || t.status === 'handled') && t.assignee === user.key;
+  }
+
+  // פניה שטופלה על ידי מישהי אחרת – חבר/ת צוות רק צופה בה (לא לוקחת, לא עונה, לא משנה)
+  canEdit(t, user) {
+    if (this.isManager(user)) return true;
+    return !(t.status === 'handled' && t.assignee !== user.key);
   }
 
   inRange(iso, from, to) {
@@ -375,7 +383,8 @@ class Engine {
 
   // view: open (כללי) | mine | member (מנהל) | handled (טופלו – הושלם) | tracking (טופלו – במעקב) | escalated | ignored | overdue
   // sub (ל-mine/member): open | returned | overdue | tracking | done
-  list({ view = 'open', sub = 'open', member, category, q, from, to }, user) {
+  // done=1 ("טופלו" בסרגל הקטגוריות): כל הפניות שטופלו – בפניות הכלליות של כל הצוות, ב"הפניות שלי" רק שלי
+  list({ view = 'open', sub = 'open', member, category, q, from, to, done }, user) {
     const mgr = this.isManager(user);
     if (['handled', 'tracking', 'escalated', 'ignored', 'overdue', 'member'].includes(view) && !mgr) throw new AppError(403, 'רק למנהל');
     const who = view === 'member' ? member : user.key;
@@ -398,14 +407,17 @@ class Engine {
       ignored: t => t.status === 'ignored',
       overdue: t => this.summary(t).overdue,
     }[view] || (t => t.status === 'new');
-    let items = all.filter(f);
+    const doneMode = done === '1' && (view === 'open' || view === 'mine');
+    let items = doneMode
+      ? all.filter(t => t.status === 'handled' && (view === 'open' || personal(t)) && this.inRange(t.lastActivity, from, to))
+      : all.filter(f);
 
     // מונים לפי קטגוריה – על התצוגה הנוכחית (לפני סינון קטגוריה/חיפוש)
     const byCategory = {};
     for (const t of items) for (const k of t.categories) byCategory[k] = (byCategory[k] || 0) + 1;
     // מונים ללשוניות המשנה של "הפניות שלי"
     let subCounts = null;
-    if (view === 'mine' || view === 'member') {
+    if (!doneMode && (view === 'mine' || view === 'member')) {
       subCounts = {};
       for (const k of Object.keys(subF)) subCounts[k] = k === 'done' ? all.filter(t => t.status === 'handled' && !t.tracking && personal(t)).length : all.filter(subF[k]).length;
     }
@@ -415,14 +427,14 @@ class Engine {
       const s = q.trim().toLowerCase();
       items = items.filter(t => [t.subject, t.fromName, t.fromEmail, ...t.messages.map(m => m.body)].some(x => (x || '').toLowerCase().includes(s)));
     }
-    const key = (sub === 'done' || sub === 'tracking' || view === 'handled' || view === 'tracking') ? 'lastActivity' : 'lastIncoming';
+    const key = (doneMode || sub === 'done' || sub === 'tracking' || view === 'handled' || view === 'tracking') ? 'lastActivity' : 'lastIncoming';
     items.sort((a, b) => b[key].localeCompare(a[key]));
     return { items: items.map(t => this.summary(t)), byCategory, subCounts };
   }
 
   counts(user) {
     const mgr = this.isManager(user), me = user.key, today = ilDay(new Date().toISOString());
-    const c = { general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0,
+    const c = { general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0, handledAll: 0,
       handled: 0, tracking: 0, escalated: 0, escalatedOpen: 0, ignored: 0, overdue: 0 };
     for (const t of this.threads().values()) {
       const s = this.summary(t);
@@ -432,6 +444,7 @@ class Engine {
         if (t.returned || t.assigned) c.mineReturned++;
         if (s.overdue) c.mineOverdue++;
       }
+      if (t.status === 'handled') c.handledAll++;
       if (t.status === 'handled' && t.assignee === me) {
         if (t.tracking) c.mineTracking++;
         else c.mineDone++;
@@ -452,6 +465,14 @@ class Engine {
     const t = all.get(id) || all.get(this.alias && this.alias.get(String(id)));
     if (!t) throw new AppError(404, 'הפניה לא נמצאה (ייתכן שנמחקה מהתיבה)');
     if (user && !this.canSee(t, user)) throw new AppError(403, 'הפניה הזו לא נמצאת אצלך');
+    return t;
+  }
+
+  getEdit(id, user) {
+    const t = this.get(id, user);
+    if (!this.canEdit(t, user)) throw new AppError(403, t.assignee
+      ? `הפניה טופלה על ידי ${this.userName(t.assignee)} – אפשר רק לצפות בה`
+      : 'הפניה טופלה – אפשר רק לצפות בה');
     return t;
   }
 
@@ -479,7 +500,7 @@ class Engine {
   // ---------- פעולות ----------
   take(id, user) {
     return this.locked(id, async () => {
-      const t = this.get(id, user), mgr = this.isManager(user);
+      const t = this.getEdit(id, user), mgr = this.isManager(user);
       if (t.status === 'ignored') throw new AppError(400, 'הפניה מוסתרת. קודם צריך להחזיר אותה.');
       if (t.status === 'escalated' && !mgr) throw new AppError(403, 'רק המנהל מטפל בפניות שהועברו אליו');
       if (t.status === 'in_progress' && t.assignee && t.assignee !== user.key && !mgr) throw new AppError(409, `הפניה כבר בטיפול של ${this.userName(t.assignee)}`);
@@ -497,7 +518,7 @@ class Engine {
 
   release(id, user) {
     return this.locked(id, async () => {
-      const t = this.get(id, user), mgr = this.isManager(user);
+      const t = this.getEdit(id, user), mgr = this.isManager(user);
       if (t.assignee !== user.key && !mgr) throw new AppError(403, 'רק מי שהפניה אצלו יכול לשחרר אותה');
       const last = t.raw[t.raw.length - 1];
       if (last && last.labels.has(L.followup)) {
@@ -518,7 +539,7 @@ class Engine {
   // track = true → "טופלה – במעקב" (מחכים ללקוח); אחרת "טופלה – הושלם"
   markHandled(id, user, track = false) {
     return this.locked(id, async () => {
-      const t = this.get(id, user), mgr = this.isManager(user);
+      const t = this.getEdit(id, user), mgr = this.isManager(user);
       if (t.status === 'in_progress' && t.assignee !== user.key && !mgr) throw new AppError(409, `הפניה בטיפול של ${this.userName(t.assignee)}`);
       await this.p.modifyLabels([t.lastUid], [L.done], [L.reopen, L.followup]);
       await this.p.modifyLabels(t.uids, track ? [L.track] : [], track ? [] : [L.track]);
@@ -534,7 +555,7 @@ class Engine {
   // פניה שכבר טופלה: מעבר בין "הושלם" ל"במעקב" בלי לשלוח כלום
   setTracking(id, user, on) {
     return this.locked(id, async () => {
-      const t = this.get(id, user), mgr = this.isManager(user);
+      const t = this.getEdit(id, user), mgr = this.isManager(user);
       if (t.status !== 'handled') throw new AppError(400, 'אפשר לסמן מעקב רק לפניה שטופלה');
       if (t.assignee && t.assignee !== user.key && !mgr) throw new AppError(403, `הפניה של ${this.userName(t.assignee)}`);
       if (!!t.tracking === !!on) return this.refresh(id, user);
@@ -548,7 +569,7 @@ class Engine {
   reopen(id, user) {
     return this.locked(id, async () => {
       if (!this.isManager(user)) throw new AppError(403, 'רק המנהל יכול להחזיר פניה לכללי');
-      const t = this.get(id, user);
+      const t = this.getEdit(id, user);
       await this.p.modifyLabels(t.uids, [L.free], [L.done, L.esc, L.ignore, L.followup, L.track, L.assigned, ...this.byLabels()]);
       if (t.raw.length && this.isOut(t.raw[t.raw.length - 1])) await this.p.modifyLabels([t.lastUid], [L.reopen, L.keep]);
       else await this.p.modifyLabels([t.lastUid], [L.keep]);
@@ -562,7 +583,7 @@ class Engine {
     return this.locked(id, async () => {
       if (!this.isManager(user)) throw new AppError(403, 'רק המנהל יכול להעביר פניה לחבר צוות');
       if (!this.users.isActive(toKey)) throw new AppError(400, 'חבר הצוות לא נמצא');
-      const t = this.get(id, user);
+      const t = this.getEdit(id, user);
       if (t.assignee === toKey && t.status === 'in_progress') throw new AppError(409, `הפניה כבר אצל ${this.userName(toKey)}`);
       await this.setOwner(t, toKey);
       await this.p.modifyLabels(t.uids, toKey === user.key ? [] : [L.assigned], [L.esc, L.ignore, L.done, L.followup, L.track]);
@@ -576,7 +597,7 @@ class Engine {
 
   ignore(id, user) {
     return this.locked(id, async () => {
-      const t = this.get(id, user), mgr = this.isManager(user);
+      const t = this.getEdit(id, user), mgr = this.isManager(user);
       if (!mgr && t.status !== 'new' && t.assignee !== user.key) throw new AppError(403, 'אין הרשאה');
       await this.p.modifyLabels(t.uids, [L.ignore], [L.keep, L.assigned, ...this.byLabels()]);
       this.addLog(id, user, 'ignore', 'סימן/ה "לא פניה" – הוסתר');
@@ -586,7 +607,7 @@ class Engine {
 
   setCategories(id, cats, user) {
     return this.locked(id, async () => {
-      const t = this.get(id, user);
+      const t = this.getEdit(id, user);
       cats = cats.filter(k => this.catKeys.has(k));
       if (!cats.length) cats = ['general'];
       const all = config.CATEGORIES.map(c => L.cat(c.key));
@@ -606,7 +627,7 @@ class Engine {
   // track = true → אחרי השליחה הפניה ב"טופלו – במעקב"; אחרת "טופלו – הושלם" (ברירת מחדל)
   reply(id, user, body, files, toAddress, track = false) {
     return this.locked(id, async () => {
-      const t = this.get(id, user);
+      const t = this.getEdit(id, user);
       if (!['in_progress', 'escalated'].includes(t.status) || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "אני מטפל/ת בזה"');
       // אפשר כמה נמענים – מופרדים בפסיק, נקודה-פסיק או רווח
       const def = String(t.replyTarget.address).toLowerCase();
@@ -657,7 +678,7 @@ class Engine {
   // העברה למנהל: רק תיוג. הפניה עוברת לתיקיית "הועבר למנהל" (רק המנהל רואה אותה). ההערה נשמרת כהערה פנימית.
   escalate(id, user, note) {
     return this.locked(id, async () => {
-      const t = this.get(id, user), mgr = this.isManager(user);
+      const t = this.getEdit(id, user), mgr = this.isManager(user);
       if (t.status === 'escalated') throw new AppError(409, 'הפניה כבר בתיקיית המנהל');
       if (t.status === 'in_progress' && t.assignee !== user.key && !mgr) throw new AppError(409, `הפניה בטיפול של ${this.userName(t.assignee)}`);
       await this.p.modifyLabels(t.uids, [L.esc], [...this.byLabels(), L.free, L.assigned]);
@@ -678,7 +699,7 @@ class Engine {
 
   addNote(id, user, text) {
     return this.locked(id, async () => {
-      const t = this.get(id, user);
+      const t = this.getEdit(id, user);
       this.pushNote(t.id, user, text);
       return this.refresh(id, user);
     });
@@ -686,7 +707,7 @@ class Engine {
 
   deleteNote(id, noteId, user) {
     return this.locked(id, async () => {
-      const t = this.get(id, user);
+      const t = this.getEdit(id, user);
       const n = this.notes.find(x => x.id === noteId && t.ids.includes(x.t));
       if (!n) throw new AppError(404, 'ההערה לא נמצאה');
       if (n.user !== user.key && !this.isManager(user)) throw new AppError(403, 'אפשר למחוק רק הערה שכתבת');
