@@ -7,7 +7,7 @@ const { splitHistory, bodyKey } = require('./mail/history');
 
 const L = {
   done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', track: 'KOH/track', notEnglish: 'KOH/not-english',
-  free: 'KOH/free', assigned: 'KOH/assigned',
+  free: 'KOH/free', assigned: 'KOH/assigned', outSeen: 'KOH/outbound',
   // KOH/by/<key> = מי שהפניה שלו. נשאר גם אחרי המענה – כדי שתגובה חוזרת של הלקוח תגיע לאותו חבר צוות.
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
 };
@@ -115,7 +115,29 @@ class Engine {
       for (const x of g.ids) this.alias.set(x, g.id);
     }
     this.cache = new Map(out.map(t => [t.id, t]));
+    for (const t of out) this.claimOutbound(t);
     return this.cache;
+  }
+
+  // מייל יזום שזה עתה הגיע מהסנכרון: הפניה נרשמת על שם השולחת (ובמעקב, אם ביקשה) – פעם אחת בלבד
+  claimOutbound(t) {
+    if (!t.outbound) return;
+    const m = t.raw.find(x => x.uid === t.outboundUid);
+    this.claiming ||= new Map();
+    if (!m || m.labels.has(L.outSeen)) return;
+    if (this.claiming.has(m.uid)) return this.claiming.get(m.uid);
+    const hasOwner = t.raw.some(x => [...x.labels].some(l => l.startsWith('KOH/by/') || l === L.free));
+    const add = [];
+    if (!hasOwner && t.outboundAuthor && this.users.isActive(t.outboundAuthor)) add.push(L.by(t.outboundAuthor));
+    if (t.outboundTrack && t.status === 'handled') add.push(L.track);
+    const run = Promise.resolve()
+      .then(() => add.length && this.p.modifyLabels(t.uids, add, []))
+      .then(() => this.p.modifyLabels([m.uid], [L.outSeen], []))
+      .then(() => { this.cache = null; })
+      .catch(e => console.error('[compose] labels', e.message))
+      .finally(() => this.claiming.delete(m.uid));
+    this.claiming.set(m.uid, run);
+    return run;
   }
 
   // מי הצד השני בשיחה (לאיחוד לפי נושא): בהודעה נכנסת – השולח, ביוצאת – הנמען
@@ -179,11 +201,13 @@ class Engine {
   buildThread(threadId, msgs, ids = [threadId]) {
     msgs.sort((a, b) => a.date.localeCompare(b.date) || a.uid - b.uid);
     const incoming = msgs.filter(m => !this.isOut(m));
-    if (!incoming.length) return null;
+    // מייל חדש שנשלח יזום מהדשבורד – פניה גם לפני שהתורם השיב
+    const started = msgs.find(m => m.outbound && this.isOut(m));
+    if (!incoming.length && !started) return null;
     // רק מיילים שהגיעו דרך help@ (לפי הנמען המקורי או נתיב ההעברה) – כדי שמיילים פרטיים לא ייכנסו
     const viaHelp = m => m.imported || m.to.some(a => config.ACCEPT_TO.includes(a)) || config.FORWARDERS.includes(m.from.address)
       || config.ACCEPT_TO.some(a => (m.route || '').includes(a.split('@')[1]));
-    if (!config.ACCEPT_ALL && config.ACCEPT_TO.length && !incoming.some(viaHelp)) return null;
+    if (!started && !config.ACCEPT_ALL && config.ACCEPT_TO.length && !incoming.some(viaHelp)) return null;
 
     // פונה: אם הגיע Fwd ידני מכתובת מעבירה – ננסה לחלץ את השולח המקורי
     const senderOf = m => {
@@ -194,9 +218,11 @@ class Engine {
       return m.replyTo && m.replyTo.address && !config.FORWARDERS.includes(m.replyTo.address)
         ? { name: m.from.name || m.replyTo.name, address: m.replyTo.address } : m.from;
     };
-    const first = incoming[0], lastIn = incoming[incoming.length - 1];
-    const customer = senderOf(first);
-    const replyTarget = senderOf(lastIn);
+    // בלי הודעה נכנסת (מייל יזום שעוד לא נענה): "הפונה" הוא הנמען, והתשובה הבאה ממשיכה את המייל שלנו
+    const first = incoming[0] || started, lastIn = incoming[incoming.length - 1] || msgs[msgs.length - 1];
+    const recipient = m => ({ name: m.toName || '', address: this.partyOf(m) || (m.to || [])[0] || '' });
+    const customer = incoming.length ? senderOf(first) : recipient(started);
+    const replyTarget = incoming.length ? senderOf(lastIn) : recipient(started);
 
     // הודעות יוצאות שעוד לא הגיעו מהסנכרון
     let pend = ids.flatMap(x => this.pending.get(x) || []);
@@ -278,6 +304,7 @@ class Engine {
       fromName: customer.name || customer.address,
       fromEmail: customer.address,
       replyTarget,
+      outbound: !!started, outboundUid: started ? started.uid : null, outboundAuthor: started ? started.author : null, outboundTrack: started ? started.outbound === 'track' : false,
       status, mgr, assignee, returned, waiting, assigned, tracking, fromTracking, trackDefault, categories,
       lastIncoming: lastIn.date,
       lastActivity: pend.length ? pend[pend.length - 1].date : last.date,
@@ -333,7 +360,7 @@ class Engine {
     return {
       id: t.id, subject: t.subject, fromName: t.fromName, fromEmail: t.fromEmail,
       status: t.status, mgr: t.mgr, assignee: t.assignee, assigneeName: t.assignee ? this.userName(t.assignee) : null,
-      returned: t.returned, assigned: t.assigned, tracking: t.tracking, fromTracking: t.fromTracking, waiting: t.waiting, overdue, categories: t.categories,
+      outbound: t.outbound, returned: t.returned, assigned: t.assigned, tracking: t.tracking, fromTracking: t.fromTracking, waiting: t.waiting, overdue, categories: t.categories,
       lastIncoming: t.lastIncoming, lastActivity: t.lastActivity,
       messageCount: t.messages.length,
       hasAttachments: t.messages.some(m => m.attachments.length),
@@ -673,6 +700,47 @@ class Engine {
       this.addLog(id, user, 'reply', (same ? `השיב/ה ל-${toText}` : `השיב/ה ל-${toText} (נמענים שונים מברירת המחדל – הפונה ${t.replyTarget.address})`) + (tr ? ' · טופלו – במעקב' : ''));
       return this.refresh(id, user);
     });
+  }
+
+  // מייל חדש לתורם, יזום מהדשבורד (למשל אחרי שיחת טלפון). נוצרת פניה על שם השולחת:
+  // "טופלו – הושלם", או "טופלו – במעקב" (track). כשהתורם משיב – הפניה חוזרת אליה כרגיל.
+  async compose(user, { to, name, subject, body, files = [], track = false }) {
+    const seen = new Set();
+    const list = String(to || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean)
+      .filter(a => !seen.has(a.toLowerCase()) && seen.add(a.toLowerCase()));
+    if (!list.length) throw new AppError(400, 'צריך להזין כתובת מייל של הנמען');
+    const bad = list.find(a => !EMAIL_RE.test(a));
+    if (bad) throw new AppError(400, `כתובת המייל לא תקינה: ${bad}`);
+    if (list.length > 10) throw new AppError(400, 'אפשר לשלוח לעד 10 נמענים במייל אחד');
+    if (list.some(a => a.toLowerCase() === this.me)) throw new AppError(400, 'אי אפשר לשלוח מייל לתיבה של הדשבורד עצמה');
+    subject = String(subject || '').replace(/[\r\n]+/g, ' ').trim();
+    body = String(body || '').trim();
+    if (!subject) throw new AppError(400, 'צריך לכתוב נושא למייל');
+    if (!body) throw new AppError(400, 'אי אפשר לשלוח מייל ריק');
+    if (subject.length > 200) throw new AppError(400, 'הנושא ארוך מדי');
+    name = String(name || '').replace(/[\r\n"<>]+/g, ' ').trim().slice(0, 100);
+    const toList = list.map((a, i) => ({ name: i === 0 ? name : '', address: a }));
+    const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>`;
+
+    const messageId = await this.p.send({
+      to: toList, subject, text: body, html,
+      headers: { 'X-KOH-Author': user.key, 'X-KOH-Outbound': track ? 'track' : 'done' },
+      attachments: files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })),
+    });
+    const toText = list.join(', ');
+
+    // מחכים שהמייל יופיע בתיבה (כמה שניות), כדי לפתוח את הפניה החדשה
+    let t = null;
+    for (let i = 0; i < 24 && !t; i++) {
+      this.cache = null;
+      t = [...this.threads().values()].find(x => x.raw.some(m => m.messageId === messageId));
+      if (!t) await new Promise(r => setTimeout(r, 500));
+    }
+    this.addLog(t ? t.id : null, user, 'compose', `שלח/ה מייל חדש ל-${toText}` + (track ? ' · טופלו – במעקב' : ''));
+    if (!t) return { sent: true, id: null };
+    await this.claimOutbound(t);
+    this.cache = null;
+    return { sent: true, ...this.refresh(t.id, user) };
   }
 
   // העברה למנהל: רק תיוג. הפניה עוברת לתיקיית "הועבר למנהל" (רק המנהל רואה אותה). ההערה נשמרת כהערה פנימית.

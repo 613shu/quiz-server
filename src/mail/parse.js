@@ -100,6 +100,9 @@ async function parseRaw(raw, meta = {}) {
     system: h('x-koh-system'),
     note: h('x-koh-note'),
     imported: !!h('x-koh-import'),
+    // מייל חדש שנשלח יזום מהדשבורד ('done' / 'track') + שם הנמען (לתצוגה כ"פונה")
+    outbound: h('x-koh-outbound'),
+    toName: p.to && [].concat(p.to)[0] && [].concat(p.to)[0].value[0] ? [].concat(p.to)[0].value[0].name || '' : '',
     attachments: fileParts(p).map((a, i) => ({
       index: i, name: a.filename || `קובץ-${i + 1}`, type: a.contentType, size: a.size, inline: !!a.related,
     })),

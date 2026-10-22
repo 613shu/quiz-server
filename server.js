@@ -184,6 +184,12 @@ app.post('/api/inquiries/:id/reply', uploadFiles, h(req => {
   return engine.reply(req.params.id, req.user, body, files, req.body.to, req.body.track === '1');
 }));
 
+// מייל חדש לתורם (יזום מהדשבורד)
+app.post('/api/compose', uploadFiles, h(req => engine.compose(req.user, {
+  to: req.body.to, name: req.body.name, subject: req.body.subject, body: req.body.body, track: req.body.track === '1',
+  files: (req.files || []).map(f => ({ name: Buffer.from(f.originalname, 'latin1').toString('utf8'), type: f.mimetype, size: f.size, buffer: f.buffer })),
+})));
+
 app.get('/api/attachments/:id', async (req, res) => {
   try {
     const a = await engine.attachment(req.params.id, req.user);

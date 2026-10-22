@@ -321,6 +321,7 @@ function renderList() {
         <div class="inq-meta">
           <span class="pill ${stKey(it)}">${it.tracking ? ic('eye') : ''}${esc(statusText(it))}</span>
           ${it.tracking ? `<span class="pill track-age" title="מאז התשובה האחרונה">${trackAge(it.lastActivity)}</span>` : ''}
+          ${it.outbound ? `<span class="pill outbound" title="מייל שנשלח יזום מהדשבורד">${ic('mail')}מייל יזום</span>` : ''}
           ${it.fromTracking ? '<span class="pill from-track">חזרה ממעקב</span>' : ''}
           ${it.assigned ? '<span class="pill assigned">הועבר אליך</span>' : ''}
           ${it.returned ? '<span class="pill returned">הלקוח חזר</span>' : ''}
@@ -502,6 +503,7 @@ function renderDetail() {
       <div class="d-state">
         <span class="pill ${stKey(d)}">${d.tracking ? ic('eye') : ''}${esc(d.status === 'escalated' ? 'אצל המנהל · ' + (MGR_LABEL[d.mgr] || '') : d.status === 'handled' ? doneText(d) : STATUS[d.status])}</span>
         ${d.tracking ? `<span class="pill track-age" title="מאז התשובה האחרונה ללקוח">${trackAge(d.lastActivity)}</span>` : ''}
+        ${d.outbound ? `<span class="pill outbound" title="הפניה נפתחה במייל שנשלח יזום מהדשבורד">${ic('mail')}מייל יזום</span>` : ''}
         ${d.fromTracking ? '<span class="pill from-track">הלקוח חזר – הפניה הייתה במעקב</span>' : ''}
         ${d.assigned ? '<span class="pill assigned">הועבר אליך ע״י המנהל</span>' : ''}
         ${d.returned ? '<span class="pill returned">הלקוח כתב שוב אחרי שענינו</span>' : ''}
@@ -802,6 +804,105 @@ function addEscFiles(list) {
   renderEscFiles();
 }
 
+// ---------- מייל חדש לתורם ----------
+function openCompose() {
+  const dlg = $('#dlg-compose');
+  $('#cm-clip').innerHTML = ic('clip'); $('#cm-eye').innerHTML = ic('eye');
+  $('#cm-err').textContent = '';
+  document.querySelectorAll('#dlg-compose .cm-row').forEach(r => r.classList.remove('bad'));
+  renderComposeFiles();
+  dlg.showModal();
+  (!$('#cm-to').value ? $('#cm-to') : !$('#cm-subject').value ? $('#cm-subject') : $('#cm-body')).focus();
+}
+function renderComposeFiles() {
+  const el = $('#cm-files'), files = S.cmFiles || [];
+  const total = files.reduce((a, f) => a + f.size, 0), locked = S.cmSending;
+  el.hidden = !files.length;
+  el.innerHTML = files.map((f, i) => `<span class="file"><span class="f-ic">${fileIcon(f.name, f.type)}</span>
+      <span class="f-name" title="${esc(f.name)}">${esc(f.name)}</span><span class="f-sz">${fmtSize(f.size)}</span>
+      ${locked ? '' : `<button type="button" data-cm-rm="${i}" title="הסרת הקובץ">✕</button>`}</span>`).join('') +
+    (files.length ? `<span class="f-total ${total > MAX_TOTAL ? 'bad' : ''}">${files.length} ${files.length === 1 ? 'קובץ' : 'קבצים'} · ${fmtSize(total)}${total > MAX_TOTAL ? ' – מעל 24MB, הסירו קבצים' : ''}</span>` : '');
+}
+function addComposeFiles(list) {
+  if (S.cmSending) return;
+  const files = S.cmFiles || (S.cmFiles = []), problems = [];
+  for (const f of list) {
+    if (!f.size) { problems.push(`"${f.name}" ריק או שאינו קובץ`); continue; }
+    if (f.size > MAX_FILE) { problems.push(`"${f.name}" גדול מדי (${fmtSize(f.size)}). המקסימום לקובץ הוא 20MB`); continue; }
+    if (files.length >= MAX_FILES) { problems.push(`אפשר לצרף עד ${MAX_FILES} קבצים`); break; }
+    if (!files.some(x => x.name === f.name && x.size === f.size)) files.push(f);
+  }
+  if (problems.length) $('#cm-err').textContent = problems.join(' · ');
+  renderComposeFiles();
+}
+function resetCompose() {
+  ['#cm-to', '#cm-name', '#cm-subject', '#cm-body'].forEach(x => { $(x).value = ''; });
+  S.cmFiles = []; renderComposeFiles();
+}
+async function sendCompose(track) {
+  if (S.cmSending) return;
+  const dlg = $('#dlg-compose'), err = $('#cm-err');
+  const to = $('#cm-to').value.trim(), subject = $('#cm-subject').value.trim(), body = $('#cm-body').value.trim();
+  const tl = to.split(/[,;\s]+/).filter(Boolean), badTo = tl.find(a => !validEmail(a));
+  const bad = (sel, msg) => { const r = $(sel).closest('.cm-row'); r && r.classList.add('bad'); $(sel).focus(); err.textContent = msg; };
+  document.querySelectorAll('#dlg-compose .cm-row').forEach(r => r.classList.remove('bad'));
+  err.textContent = '';
+  if (!tl.length) return bad('#cm-to', 'הזינו את כתובת המייל של התורם');
+  if (badTo) return bad('#cm-to', `כתובת המייל לא תקינה: ${badTo}`);
+  if (tl.length > 10) return bad('#cm-to', 'אפשר לשלוח לעד 10 נמענים במייל אחד');
+  if (!subject) return bad('#cm-subject', 'כתבו נושא למייל');
+  if (!body) { $('#cm-box').classList.add('shake'); setTimeout(() => $('#cm-box').classList.remove('shake'), 500); $('#cm-body').focus(); err.textContent = 'כתבו את תוכן המייל'; return; }
+  const files = S.cmFiles || [];
+  if (files.reduce((a, f) => a + f.size, 0) > MAX_TOTAL) { err.textContent = 'הקבצים גדולים מדי יחד (מעל 24MB). הסירו חלק מהם.'; return; }
+
+  const fd = new FormData();
+  fd.append('to', to); fd.append('name', $('#cm-name').value.trim()); fd.append('subject', subject); fd.append('body', body);
+  if (track) fd.append('track', '1');
+  files.forEach(f => fd.append('files', f));
+  S.cmSending = true; dlg.classList.add('busy'); renderComposeFiles();
+  const btns = ['#cm-send', '#cm-send-track', '#cm-cancel', '#cm-close'].map(x => $(x));
+  btns.forEach(b => (b.disabled = true));
+  const t = toast('שולח את המייל…', 'wait');
+  try {
+    const r = await postWithProgress('/compose', fd, (l, tot) => { if (files.length && l >= 0 && tot > 0 && l < tot) t.set(`מעלה קבצים… ${Math.round(l / tot * 100)}%`, 'wait'); });
+    const who = $('#cm-name').value.trim() || tl[0];
+    S.cmSending = false; dlg.classList.remove('busy'); btns.forEach(b => (b.disabled = false));
+    resetCompose(); dlg.close();
+    t.set(`המייל נשלח ל${who.includes('@') ? '-' : ''}${who}` + (track ? ' · הפניה במעקב' : ''), 'ok');
+    await loadList().catch(() => {});
+    if (r.id && !r.hidden && S.screen === 'inbox') {
+      S.selId = r.id; S.detail = r; renderDetail(); $('#layout').classList.add('show-detail');
+    }
+  } catch (e) {
+    S.cmSending = false; dlg.classList.remove('busy'); btns.forEach(b => (b.disabled = false)); renderComposeFiles();
+    t.close(); err.textContent = 'המייל לא נשלח: ' + e.message;
+  }
+}
+function bindCompose() {
+  const dlg = $('#dlg-compose');
+  $('#compose-open').addEventListener('click', openCompose);
+  $('#cm-close').addEventListener('click', () => dlg.close());
+  $('#cm-cancel').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('cancel', e => { if (S.cmSending) e.preventDefault(); });
+  // לחיצה על הרקע סוגרת (הטיוטה נשמרת)
+  dlg.addEventListener('mousedown', e => { if (e.target === dlg && !S.cmSending) dlg.close(); });
+  $('#compose-form').addEventListener('submit', e => { e.preventDefault(); sendCompose(false); });
+  $('#cm-send-track').addEventListener('click', () => sendCompose(true));
+  $('#cm-body').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendCompose(false); } });
+  // Enter בשדות העליונים לא שולח – רק עובר לשדה הבא
+  const next = { '#cm-to': '#cm-name', '#cm-name': '#cm-subject', '#cm-subject': '#cm-body' };
+  Object.keys(next).forEach(x => $(x).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $(next[x]).focus(); } }));
+  dlg.addEventListener('input', e => { const r = e.target.closest('.cm-row'); if (r) r.classList.remove('bad'); if ($('#cm-err').textContent && !S.cmSending) $('#cm-err').textContent = ''; });
+  $('#cm-file').addEventListener('change', e => { addComposeFiles([...e.target.files]); e.target.value = ''; });
+  $('#cm-files').addEventListener('click', e => { const b = e.target.closest('[data-cm-rm]'); if (b) { S.cmFiles.splice(+b.dataset.cmRm, 1); renderComposeFiles(); } });
+  const box = $('#cm-box'); let n = 0;
+  box.addEventListener('dragenter', e => { if (!e.dataTransfer?.types.includes('Files')) return; e.preventDefault(); n++; box.classList.add('drag'); });
+  box.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); });
+  box.addEventListener('dragleave', () => { if (--n <= 0) { n = 0; box.classList.remove('drag'); } });
+  box.addEventListener('drop', e => { e.preventDefault(); n = 0; box.classList.remove('drag'); addComposeFiles([...e.dataTransfer.files]); });
+  $('#cm-body').addEventListener('paste', e => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); addComposeFiles(fs); } });
+}
+
 async function addNote() {
   const d = S.detail, ta = $('#note-text'); if (!d || !ta) return;
   const text = ta.value.trim();
@@ -931,6 +1032,7 @@ function bindApp() {
     } catch (err) { $('#p-err').textContent = err.message; }
   });
 
+  bindCompose();
   $('#logout').addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); location.reload(); });
 }
 
@@ -960,7 +1062,7 @@ async function startApp() {
   }, 20000);
 }
 
-window.addEventListener('beforeunload', e => { if (S.sending) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => { if (S.sending || S.cmSending) { e.preventDefault(); e.returnValue = ''; } });
 
 (async function boot() {
   bindLogin();
