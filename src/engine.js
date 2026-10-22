@@ -341,11 +341,10 @@ class Engine {
     };
   }
 
-  // הערות פנימיות: רואים מי שכתב/ה, המנהל, ומי שהפניה אצלו עכשיו; בפניה שטופלה – כל הצוות
+  // הערות פנימיות: כל מי שפותח/ת את הפניה רואה את כל ההערות. מחיקה – רק הכותב/ת או המנהל.
   notesFor(t, user) {
     const mgr = this.isManager(user);
     return this.notes.filter(n => t.ids.includes(n.t))
-      // בפניה שטופלה – כל הצוות רואה את ההערות (לקריאה, כחלק מהחיפוש בפניות שטופלו)
       .filter(n => this.noteVisible(n, t, user))
       .map(n => ({ id: n.id, at: n.at, user: this.userName(n.user), userKey: n.user, text: n.text, kind: n.kind || 'note', canDelete: mgr || n.user === user.key, files: this.noteFiles(n) }));
   }
@@ -721,8 +720,9 @@ class Engine {
       : n.files.map(f => ({ id: null, ...f }));
   }
 
+  // כל מי שרואה את הפניה רואה את כל ההערות שבה (הגישה לפניה עצמה נבדקת ב-canSee)
   noteVisible(n, t, user) {
-    return this.isManager(user) || n.user === user.key || t.assignee === user.key || t.status === 'handled';
+    return this.canSee(t, user);
   }
 
   addNote(id, user, text) {
