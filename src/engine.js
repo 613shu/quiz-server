@@ -409,7 +409,7 @@ class Engine {
     return (!from || d >= from) && (!to || d <= to);
   }
 
-  // view: open (כללי) | mine | member (מנהל) | handled (טופלו – הושלם) | tracking (טופלו – במעקב) | escalated | ignored | overdue
+  // view: all (הכל – כל מה שמותר לראות, לחיפוש כללי) | open (כללי) | mine | member (מנהל) | handled (טופלו – הושלם) | tracking (טופלו – במעקב) | escalated | ignored | overdue
   // sub (ל-mine/member): open | returned | overdue | tracking | done
   // done=1 ("טופלו" בסרגל הקטגוריות): כל הפניות שטופלו – בפניות הכלליות של כל הצוות, ב"הפניות שלי" רק שלי
   list({ view = 'open', sub = 'open', member, category, q, from, to, done }, user) {
@@ -426,6 +426,7 @@ class Engine {
       done: t => t.status === 'handled' && !t.tracking && personal(t) && this.inRange(t.lastActivity, from, to),
     };
     const f = {
+      all: t => this.canSee(t, user),
       open: mgr ? (t => t.status === 'new' || t.status === 'in_progress') : (t => t.status === 'new'),
       mine: subF[sub] || subF.open,
       member: subF[sub] || subF.open,
@@ -453,19 +454,22 @@ class Engine {
     if (category) items = items.filter(t => t.categories.includes(category));
     if (q) {
       const s = q.trim().toLowerCase();
-      items = items.filter(t => [t.subject, t.fromName, t.fromEmail, ...t.messages.map(m => m.body)].some(x => (x || '').toLowerCase().includes(s)));
+      items = items.filter(t => [t.subject, t.fromName, t.fromEmail, t.assignee ? this.userName(t.assignee) : "",
+        ...t.messages.flatMap(m => [m.body, m.from && m.from.address, ...(m.attachments || []).map(a => a.name)]),
+        ...this.notesFor(t, user).map(n => n.text)].some(x => (x || '').toLowerCase().includes(s)));
     }
-    const key = (doneMode || sub === 'done' || sub === 'tracking' || view === 'handled' || view === 'tracking') ? 'lastActivity' : 'lastIncoming';
+    const key = (view === 'all' || doneMode || sub === 'done' || sub === 'tracking' || view === 'handled' || view === 'tracking') ? 'lastActivity' : 'lastIncoming';
     items.sort((a, b) => b[key].localeCompare(a[key]));
     return { items: items.map(t => this.summary(t)), byCategory, subCounts };
   }
 
   counts(user) {
     const mgr = this.isManager(user), me = user.key, today = ilDay(new Date().toISOString());
-    const c = { general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0, handledAll: 0,
+    const c = { all: 0, general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0, handledAll: 0,
       handled: 0, tracking: 0, escalated: 0, escalatedOpen: 0, ignored: 0, overdue: 0 };
     for (const t of this.threads().values()) {
       const s = this.summary(t);
+      if (this.canSee(t, user)) c.all++;
       if (t.status === 'new') c.general++;
       if (t.status === 'in_progress' && t.assignee === me) {
         c.mine++;

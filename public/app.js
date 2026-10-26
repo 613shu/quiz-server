@@ -38,8 +38,9 @@ const isMgr = () => !!(S.me && S.me.manager);
 // תצוגות לפי תפקיד: [מפתח, שם, מונה]
 function viewTabs() {
   const c = S.counts;
-  if (!isMgr()) return [['open', 'פניות כלליות', c.general], ['mine', 'הפניות שלי', c.mine, c.mineReturned]];
-  return [['open', 'כל הפתוחות', c.open], ['mine', 'הפניות שלי', c.mine, c.mineReturned], ['escalated', 'הועבר למנהל', c.escalatedOpen],
+  // "הכל" – כל הפניות שמותר לי לראות, בכל הסטטוסים. החיפוש עובר אליה אוטומטית.
+  if (!isMgr()) return [['all', 'הכל', c.all], ['open', 'פניות כלליות', c.general], ['mine', 'הפניות שלי', c.mine, c.mineReturned]];
+  return [['all', 'הכל', c.all], ['open', 'כל הפתוחות', c.open], ['mine', 'הפניות שלי', c.mine, c.mineReturned], ['escalated', 'הועבר למנהל', c.escalatedOpen],
     ['overdue', 'ממתינות זמן רב', c.overdue], ['handled', 'טופלו – הושלם', c.handled], ['tracking', 'טופלו – במעקב', c.tracking], ['ignored', 'הוסתרו', c.ignored]];
 }
 const SUBS = [['open', 'לטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['done', 'הושלמו'], ['tracking', 'במעקב']];
@@ -934,7 +935,12 @@ function bindApp() {
     if (e.target.closest('[data-done]')) { S.done = true; S.category = null; S._listHtml = null; return loadList().catch(err => toast(err.message, 'err')); }
     const b = e.target.closest('[data-cat]'); if (b) { S.done = false; S.category = b.dataset.cat || null; loadList(); }
   });
-  let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { S.q = e.target.value; loadList(); }, 250); });
+  let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => {
+    S.q = e.target.value.trim();
+    // חיפוש כללי: מקלידים בחיפוש → עוברים ל"הכל" (כל התצוגות וכל הקטגוריות)
+    if (S.q && (S.view !== 'all' || S.category || S.done)) { S.category = null; S.done = false; setView('all').catch(err => toast(err.message, 'err')); }
+    else loadList();
+  }, 250); });
   $('#list').addEventListener('click', e => { const li = e.target.closest('[data-id]'); if (li) openInquiry(li.dataset.id).catch(err => toast(err.message, 'err')); });
 
   const det = $('#detail');
