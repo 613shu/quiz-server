@@ -4,6 +4,7 @@ const config = require('./config');
 const { categorize, isEnglish } = require('./categorize');
 const { extractForwardedSender, extractAttachment } = require('./mail/parse');
 const { splitHistory, bodyKey } = require('./mail/history');
+const signature = require('./mail/signature');
 
 const L = {
   done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', track: 'KOH/track', notEnglish: 'KOH/not-english',
@@ -671,7 +672,7 @@ class Engine {
       const li = t.lastIn;
       const subject = /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
       const quoteHead = `בתאריך ${fmtDate(li.date)}, ${li.from.name || li.from.address} כתב/ה:`;
-      const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>
+      const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>${signature.html()}
 <br><div dir="rtl" style="font-family:Arial,sans-serif;font-size:13px;color:#555;text-align:right">${esc(quoteHead)}</div>
 <blockquote dir="rtl" style="margin:0 8px 0 0;padding:0 10px 0 0;border-right:2px solid #ccc;color:#555;font-family:Arial,sans-serif;font-size:13px;text-align:right">${esc(li.body + (li.quoted ? '\n\n' + li.quoted : '')).replace(/\n/g, '<br>')}</blockquote>`;
       const text = `${body}\n\n${quoteHead}\n${(li.body || '').split('\n').map(l => '> ' + l).join('\n')}`;
@@ -683,7 +684,7 @@ class Engine {
         inReplyTo: li.messageId || undefined,
         references: references.length ? references : undefined,
         headers: { 'X-KOH-Author': user.key },
-        attachments: files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })),
+        attachments: [...files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })), ...signature.attachment()],
       });
 
       const pend = this.pending.get(t.id) || [];
@@ -720,12 +721,12 @@ class Engine {
     if (subject.length > 200) throw new AppError(400, 'הנושא ארוך מדי');
     name = String(name || '').replace(/[\r\n"<>]+/g, ' ').trim().slice(0, 100);
     const toList = list.map((a, i) => ({ name: i === 0 ? name : '', address: a }));
-    const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>`;
+    const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>${signature.html()}`;
 
     const messageId = await this.p.send({
       to: toList, subject, text: body, html,
       headers: { 'X-KOH-Author': user.key, 'X-KOH-Outbound': track ? 'track' : 'done' },
-      attachments: files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })),
+      attachments: [...files.map(f => ({ filename: f.name, content: f.buffer, contentType: f.type })), ...signature.attachment()],
     });
     const toText = list.join(', ');
 

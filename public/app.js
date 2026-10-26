@@ -393,7 +393,10 @@ function attList(atts) {
   </div>`;
 }
 // ג'ימייל כותב "[image: image.png]" בגרסת הטקסט של תמונה מודבקת – מיותר כשהתמונה עצמה מוצגת
+// גם "[image: קרן עולם התורה]" – החתימה של הדשבורד כשהלקוח משיב ומצטט אותה
+const SIG_IMG_RE = /^[ \t]*\[image:[ \t]*(קרן עולם התורה|koh-signature\.png)[ \t]*\][ \t]*\n?/gim;
 function bodyText(m) {
+  if (m.body) m = { ...m, body: m.body.replace(SIG_IMG_RE, '').trim() };
   if (!m.body || !m.attachments.some(a => a.id && IMG_RE.test(a.type || ''))) return m.body;
   return m.body.replace(/^[ \t]*\[image:[^\]\n]{0,200}\][ \t]*\n?/gim, '').trim();
 }

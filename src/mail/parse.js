@@ -1,5 +1,6 @@
 // המרת מייל גולמי (MIME) לרשומה שהמערכת עובדת איתה.
 const { simpleParser } = require('mailparser');
+const { isSignature } = require('./signature');
 
 // מפריד בין הטקסט החדש לבין ההודעה המצוטטת (תשובה על מייל קודם)
 // (בלי \s שחוצה שורות ובלי חזרות מקוננות – כדי שמייל ארוך לא יקפיא את השרת)
@@ -73,7 +74,8 @@ const addr = a => (a && a.value && a.value[0]) ? { name: a.value[0].name || a.va
 
 // כל הקבצים – כולל תמונות שהודבקו בתוך גוף ההודעה (multipart/related עם cid).
 // בעבר סוננו החוצה, ולכן צילום מסך מודבק לא הופיע בכלל. מדלגים רק על לוגואים זעירים של חתימה.
-const fileParts = p => (p.attachments || []).filter(a => !(a.related && a.contentDisposition !== 'attachment' && (a.size || 0) < 4096));
+// גם תמונת החתימה של הדשבורד (signature.js) לא מוצגת כקובץ.
+const fileParts = p => (p.attachments || []).filter(a => !(a.related && a.contentDisposition !== 'attachment' && (a.size || 0) < 4096) && !isSignature(a));
 
 async function parseRaw(raw, meta = {}) {
   const p = await simpleParser(raw, { skipImageLinks: true, skipTextToHtml: true });
