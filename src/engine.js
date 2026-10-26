@@ -416,6 +416,8 @@ class Engine {
     if (['handled', 'tracking', 'escalated', 'ignored', 'overdue', 'member'].includes(view) && !mgr) throw new AppError(403, 'רק למנהל');
     const who = view === 'member' ? member : user.key;
     const all = [...this.threads().values()];
+    // מנהל → מזכירה: הפניות שטיפלה בהן (ענתה / סימנה כטופל) בטווח – בדיוק אותה ספירה כמו בטבלת ניהול מענה
+    if (view === 'member' && sub === 'worked') return this.workedList(who, { from, to, q }, user);
     const personal = t => t.assignee === who;
     const subF = {
       open: t => t.status === 'in_progress' && personal(t),
@@ -845,8 +847,13 @@ class Engine {
   activity() {
     const per = new Map();     // key -> Map(day -> Set(threadId))
     const replies = new Map(); // key -> [{day, ms}] (ms = זמן מענה)
-    const add = (key, day, tid) => {
+    const acts = new Map();    // key -> Map(threadId -> [{at, day, kind: reply|handled}])
+    const add = (key, day, tid, at, kind) => {
       if (!key) return;
+      if (!acts.has(key)) acts.set(key, new Map());
+      const a = acts.get(key);
+      if (!a.has(tid)) a.set(tid, []);
+      a.get(tid).push({ at, day, kind });
       if (!per.has(key)) per.set(key, new Map());
       const m = per.get(key);
       if (!m.has(day)) m.set(day, new Set());
@@ -861,7 +868,7 @@ class Engine {
         if (!m.out) { if (!waitFrom) waitFrom = m.date; continue; }
         if (m.author) {
           const day = ilDay(m.date);
-          add(m.author, day, t.id);
+          add(m.author, day, t.id, m.date, 'reply');
           if (!replies.has(m.author)) replies.set(m.author, []);
           replies.get(m.author).push({ day, ms: waitFrom ? Date.parse(m.date) - Date.parse(waitFrom) : null });
         }
@@ -872,9 +879,49 @@ class Engine {
     for (const e of [...this.oldLog, ...this.log]) {
       if (e.action !== 'handled' || !e.user) continue;
       const id = tids.has(e.t) ? e.t : this.alias && this.alias.get(String(e.t));
-      if (id) add(e.user, ilDay(e.at), id);
+      if (id) add(e.user, ilDay(e.at), id, e.at, 'handled');
     }
-    return { per, replies };
+    return { per, replies, acts };
+  }
+
+  // הפניות שחבר צוות טיפל בהן בטווח + מונים לסרגל הצד (היום / אתמול / 7 / 30 / החודש / כרגע אצלו)
+  workedList(key, { from, to, q }, user) {
+    const today = ilDay(new Date().toISOString());
+    const back = n => ilDay(new Date(Date.now() - n * 864e5).toISOString());
+    const ok = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+    to = ok(to) ? to : today; from = ok(from) ? from : today;
+    if (from > to) [from, to] = [to, from];
+    const acts = this.activity().acts.get(key) || new Map();
+    const threads = this.threads();
+    const countIn = (a, b) => { let n = 0; for (const list of acts.values()) if (list.some(x => x.day >= a && x.day <= b)) n++; return n; };
+    let items = [];
+    for (const [tid, list] of acts) {
+      const t = threads.get(tid); if (!t) continue;
+      const inR = list.filter(x => x.day >= from && x.day <= to);
+      if (!inR.length) continue;
+      const last = inR.reduce((a, x) => x.at > a ? x.at : a, '');
+      items.push({ t, worked: { replies: inR.filter(x => x.kind === 'reply').length, handled: inR.some(x => x.kind === 'handled'), last } });
+    }
+    if (q) {
+      const s = q.trim().toLowerCase();
+      items = items.filter(({ t }) => [t.subject, t.fromName, t.fromEmail,
+        ...t.messages.flatMap(m => [m.body, m.from && m.from.address, ...(m.attachments || []).map(a => a.name)]),
+        ...this.notesFor(t, user).map(n => n.text)].some(x => (x || '').toLowerCase().includes(s)));
+    }
+    items.sort((a, b) => b.worked.last.localeCompare(a.worked.last));
+    const mine = [...threads.values()].filter(t => t.assignee === key);
+    const workedCounts = {
+      today: countIn(today, today), yesterday: countIn(back(1), back(1)), week: countIn(back(6), today),
+      month30: countIn(back(29), today), thisMonth: countIn(today.slice(0, 8) + '01', today),
+      range: items.length, replies: items.reduce((a, x) => a + x.worked.replies, 0),
+    };
+    const subCounts = {
+      open: mine.filter(t => t.status === 'in_progress').length,
+      returned: mine.filter(t => t.status === 'in_progress' && (t.returned || t.assigned)).length,
+      overdue: mine.filter(t => t.status === 'in_progress' && this.summary(t).overdue).length,
+      tracking: mine.filter(t => t.tracking).length,
+    };
+    return { items: items.map(({ t, worked }) => ({ ...this.summary(t), worked })), byCategory: {}, subCounts, workedCounts, from, to };
   }
 
   stats({ from, to } = {}, user) {

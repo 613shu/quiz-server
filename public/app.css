@@ -761,3 +761,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .cm-actions .btn.primary { order: 1; } .cm-actions .btn.teal { order: 2; }
   .cm-actions #cm-cancel { order: 3; width: 100%; justify-content: center; }
 }
+
+/* מסך מזכירה אצל המנהל – סרגל צד לפי טווח */
+.side-h.who-title { display: flex; align-items: center; gap: 9px; font-size: 15px; letter-spacing: 0; color: var(--ink); font-weight: 700; padding-bottom: 12px; }
+.side-sub { font-size: 12px; font-weight: 700; color: var(--muted); padding: 14px 10px 6px; }
+.tab.back-tab { color: var(--muted); font-size: 13.5px; justify-content: flex-start; margin-bottom: 4px; }
+.tab.back-tab .i { transform: scaleX(1); width: 16px; height: 16px; }
+.tab.warn-tab .cnt { background: rgba(255,93,108,.2); color: #ffb3ba; }
+.lh-sum { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lh-sum b { font-size: 15.5px; }
+.lh-sum .muted { font-size: 12.5px; }
+.pill.worked { color: #8ff2c6; background: rgba(22,163,106,.14); box-shadow: inset 0 0 0 1px rgba(22,163,106,.35); }
+.pill.worked .i { width: 13px; height: 13px; }
+.th-rng { font-weight: 500; color: var(--muted); font-size: 12px; margin-inline-start: 4px; }
+.muted.sm { font-size: 12.5px; }
+@media (max-width: 900px) {
+  .side-h.who-title { display: flex; padding: 4px 6px; }
+  .side-sub { display: none; }
+}

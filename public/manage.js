@@ -1,6 +1,6 @@
 /* מסכי המנהל: ניהול מענה (סטטיסטיקה לכל חבר צוות) וניהול צוות */
 (function () {
-  const M = { preset: '29', from: null, to: null, data: null, team: null, showTable: false, editKey: null, delKey: null };
+  const M = { preset: '0', from: null, to: null, data: null, team: null, showTable: false, editKey: null, delKey: null };
 
   const fmtDay = d => { const [y, m, dd] = d.split('-'); return `${+dd}/${+m}`; };
   const dayName = d => new Date(d + 'T12:00:00Z').toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
@@ -121,9 +121,9 @@
         ${kpi(fmtDur(t.avgResponseMin), 'זמן מענה ממוצע', 'מהרגע שהלקוח כתב')}
       </div>
       <section class="mg-sec panel flush">
-        <div class="sec-head"><h3>לפי חבר צוות</h3></div>
+        <div class="sec-head"><h3>לפי חבר צוות</h3><span class="muted sm">פניה נספרת פעם אחת אם ענו בה או סימנו אותה כטופלה בתקופה. לחיצה על שורה מציגה את הפניות עצמן.</span></div>
         <div class="dtbl-wrap"><table class="dtbl">
-          <thead><tr><th>חבר צוות</th><th>פניות טופלו</th><th class="n">תשובות</th><th class="n">זמן מענה ממוצע</th><th></th></tr></thead>
+          <thead><tr><th>חבר צוות</th><th>פניות טופלו <span class="th-rng">${label}</span></th><th class="n">תשובות</th><th class="n">זמן מענה ממוצע</th><th></th></tr></thead>
           <tbody>${members.map(m => memberRow(m, max)).join('')}</tbody>
         </table></div>
       </section>
@@ -246,7 +246,8 @@
       if (pr) { M.preset = pr.dataset.preset; await loadStats().catch(err => toast(err.message, 'err')); return renderStatsScreen(); }
       const gv = e.target.closest('[data-goview]'); if (gv) return setView(gv.dataset.goview);
       const mm = e.target.closest('[data-member]');
-      if (mm) { const key = mm.dataset.member; return key === S.me.key ? setView('mine', mm.dataset.sub || 'open') : setView('member', mm.dataset.sub || 'open', key); }
+      // לחיצה על חבר צוות → מסך הפניות שטיפל/ה בהן, באותו טווח שנבחר כאן (אותו מספר כמו בטבלה)
+      if (mm) { S.wr = { preset: M.preset, ...rangeParams() }; return setView('member', 'worked', mm.dataset.member); }
       if (e.target.closest('#tbl-toggle')) { M.showTable = !M.showTable; return renderStatsScreen(); }
       if (e.target.closest('#u-add')) return openUser(null);
       const ue = e.target.closest('[data-uedit]'); if (ue) return openUser(ue.dataset.uedit);

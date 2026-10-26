@@ -17,6 +17,7 @@ const trackAge = iso => { const n = daysSince(iso); return n === 0 ? 'נענתה
 const TEAM_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 // אייקוני קו שקטים (במקום אימוג׳י)
 const ICONS = {
+  arrow: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
   inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -45,11 +46,29 @@ function viewTabs() {
 }
 const SUBS = [['open', 'לטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['done', 'הושלמו'], ['tracking', 'במעקב']];
 const RANGES = [['', 'הכל'], ['0', 'היום'], ['6', '7 ימים'], ['29', '30 ימים']];
+// מסך מזכירה אצל המנהל: "טיפלה ב…" לפי טווח (אותה ספירה כמו בטבלת ניהול מענה)
+const WRANGES = [['0', 'היום', 'today'], ['1', 'אתמול', 'yesterday'], ['6', '7 ימים', 'week'], ['29', '30 ימים', 'month30'], ['month', 'החודש', 'thisMonth']];
+const NOW_SUBS = [['open', 'בטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['tracking', 'במעקב']];
+function wrParams() {
+  const w = S.wr || { preset: '0' }, today = daysBack(0);
+  if (w.preset === 'custom') return { from: w.from || today, to: w.to || today };
+  if (w.preset === 'month') return { from: today.slice(0, 8) + '01', to: today };
+  if (w.preset === '1') return { from: daysBack(1), to: daysBack(1) };
+  return { from: daysBack(+w.preset), to: today };
+}
+const isWorked = () => S.view === 'member' && S.sub === 'worked';
+function wrLabel() {
+  const w = S.wr || { preset: '0' };
+  const r = WRANGES.find(x => x[0] === w.preset);
+  if (r) return r[0] === '0' ? 'היום' : r[0] === '1' ? 'אתמול' : r[0] === 'month' ? 'החודש' : `ב-${r[1]} האחרונים`;
+  const { from, to } = wrParams(), f = d => d.split('-').reverse().slice(0, 2).map(Number).join('/');
+  return from === to ? `ב-${f(from)}` : `בין ${f(from)} ל-${f(to)}`;
+}
 const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0ea5e9', '#16a36a', '#c2410c'];
 
 
 const S = {
-  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {},
+  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {},
   items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
@@ -237,9 +256,26 @@ function renderStats() {
       <div class="stat-ic">${ic(icn)}</div><div><div class="num">${n}</div><div class="lbl">${l}</div></div></div>`).join('');
 }
 
+// סרגל הצד במסך מזכירה (מנהל): טיפלה ב… לפי טווח, ומה אצלה כרגע. בלי קטגוריות.
+function renderMemberSide() {
+  const wc = S.workedCounts || {}, sc = S.subCounts || {}, w = S.wr || { preset: '0' };
+  const custom = w.preset === 'custom' ? `<button class="tab ${isWorked() ? 'active' : ''}" data-wr="custom">${esc(wrLabel())}<span class="cnt">${isWorked() ? wc.range || 0 : ''}</span></button>` : '';
+  $('#tabs').innerHTML =
+    `<button class="tab back-tab" data-screen="stats">${ic('arrow')}חזרה לניהול מענה</button>
+    <div class="side-sub">טיפלה בפניות</div>` +
+    WRANGES.map(([k, l, c]) => `<button class="tab ${isWorked() && w.preset === k ? 'active' : ''}" data-wr="${k}">${l}<span class="cnt">${wc[c] || 0}</span></button>`).join('') + custom +
+    `<div class="side-sub">אצלה כרגע</div>` +
+    NOW_SUBS.map(([k, l]) => `<button class="tab ${S.sub === k ? 'active' : ''} ${k === 'overdue' && sc.overdue ? 'warn-tab' : ''}" data-msub="${k}">${l}<span class="cnt">${sc[k] || 0}</span></button>`).join('');
+}
+
 function renderTabs() {
+  const memberSide = S.screen === 'inbox' && S.view === 'member';
+  $('#side-title').innerHTML = memberSide ? `${avatar(teamName(S.member), teamColor(S.member), 'sm team')}<span>${esc(teamName(S.member))}</span>` : 'תצוגה';
+  $('#side-title').classList.toggle('who-title', memberSide);
+  $('.cats-h').hidden = $('#chips').hidden = memberSide;
+  if (memberSide) renderMemberSide();
   const tab = ([k, l, n, hot]) => `<button class="tab ${S.screen === 'inbox' && S.view === k ? 'active' : ''}" data-view="${k}">${l}${hot ? `<span class="hot" title="חוזרות / הועברו אליך">${hot}</span>` : ''}<span class="cnt">${n || 0}</span></button>`;
-  $('#tabs').innerHTML = viewTabs().map(tab).join('');
+  if (!memberSide) $('#tabs').innerHTML = viewTabs().map(tab).join('');
   // ניווט ראשי של המנהל – בשורה העליונה
   const admin = isMgr();
   $('#main-nav').hidden = !admin;
@@ -248,13 +284,14 @@ function renderTabs() {
       .map(([k, l, n]) => `<button class="nav-b ${S.screen === k ? 'on' : ''}" data-screen="${k}" ${S.screen === k ? 'aria-current="page"' : ''}>${l}${n ? `<span class="nav-n">${n}</span>` : ''}</button>`).join('');
     if ($('#main-nav').innerHTML !== nav) $('#main-nav').innerHTML = nav;
   }
-  $('#stats').hidden = S.screen !== 'inbox';
+  $('#stats').hidden = S.screen !== 'inbox' || memberSide;
 }
 
 // "טופלו" – תגית ראשונה ברשימת הקטגוריות, כמו כל תגית (לחברות הצוות): הפניות שטופלו לצפייה וחיפוש.
 // לפי התצוגה: בפניות הכלליות – של כל הצוות; ב"הפניות שלי" – רק שלי.
 const doneOn = () => S.done && !isMgr() && (S.view === 'open' || S.view === 'mine');
 function renderChips() {
+  if (S.view === 'member') { $('#chips').innerHTML = ''; return; }
   const by = S.byCategory || {}, c = S.counts || {}, d = doneOn();
   const n = S.view === 'mine' ? (c.mineDone || 0) + (c.mineTracking || 0) : c.handledAll || 0;
   const doneChip = isMgr() || !(S.view === 'open' || S.view === 'mine') ? ''
@@ -265,6 +302,15 @@ function renderChips() {
 
 function renderListHead() {
   const el = $('#list-head');
+  if (S.view === 'member') {
+    const name = esc(teamName(S.member)), wc = S.workedCounts || {};
+    const nowL = Object.fromEntries(NOW_SUBS)[S.sub];
+    el.hidden = false;
+    el.innerHTML = `<div class="lh-who">${avatar(teamName(S.member), teamColor(S.member), 'sm team')}<div class="lh-sum">${isWorked()
+      ? `<b>${wc.range ? `${name} טיפלה ${esc(wrLabel())} ב-${wc.range} ${wc.range === 1 ? 'פניה' : 'פניות'}` : `${name} לא טיפלה בפניות ${esc(wrLabel())}`}</b><span class="muted">${wc.replies || 0} תשובות נשלחו · נספרת כל פניה שענתה בה או סימנה כטופלה</span>`
+      : `<b>פניות ${esc(nowL || '')} אצל ${name}</b><span class="muted">${S.items.length} פניות</span>`}</div></div>`;
+    return;
+  }
   const personal = S.view === 'mine' || S.view === 'member';
   const ranged = (personal && S.sub === 'done') || S.view === 'handled';
   if (!personal && !ranged) { el.hidden = true; el.innerHTML = ''; return; }
@@ -297,6 +343,7 @@ const statusText = it => it.status === 'escalated'
 const ownerTag = it => it.assignee && it.assignee !== S.me.key && S.view !== 'member'
   ? `<span class="owner-tag" style="--c:${teamColor(it.assignee)}"><i>${esc(initials(it.assigneeName))}</i>${esc(it.assigneeName)}</span>` : '';
 
+const workedText = w => [w.replies ? (w.replies === 1 ? 'ענתה' : `ענתה ${w.replies} פעמים`) : '', w.handled ? 'סימנה כטופל' : ''].filter(Boolean).join(' · ');
 function renderList() {
   const el = $('#list');
   if (!S.items.length) {
@@ -305,9 +352,10 @@ function renderList() {
       : doneOn() ? 'אין עדיין פניות שטופלו'
       : S.view === 'open' ? 'אין פניות פתוחות – כל הכבוד!'
       : S.view === 'tracking' || S.sub === 'tracking' ? 'אין פניות במעקב כרגע'
+      : isWorked() ? `${teamName(S.member)} לא טיפלה בפניות ${wrLabel()}`
       : (S.view === 'mine' || S.view === 'member') && S.sub !== 'done' ? (S.sub === 'open' ? 'אין פניות שממתינות לטיפול' : 'אין כאן כלום כרגע')
       : 'לא נמצאו פניות';
-    const good = clear && !doneOn() && S.view !== 'handled' && S.sub !== 'done' && S.view !== 'tracking' && S.sub !== 'tracking';
+    const good = clear && !isWorked() && !doneOn() && S.view !== 'handled' && S.sub !== 'done' && S.view !== 'tracking' && S.sub !== 'tracking';
     el.innerHTML = `<li class="empty-list"><div class="big">${ic(good ? 'check' : 'search')}</div>${msg}</li>`;
     S._listHtml = null;
     return;
@@ -316,10 +364,11 @@ function renderList() {
     <li class="inq ${it.id === S.selId ? 'sel' : ''}" data-id="${esc(it.id)}" style="--s:${STATUS_COLOR[stKey(it)]}">
       ${avatar(it.fromName, custColor(it.fromEmail))}
       <div class="inq-main">
-        <div class="inq-row"><span class="inq-from">${isUnread(it) ? '<span class="unread-dot"></span>' : ''}${esc(it.fromName)}</span><span class="inq-time">${fmtTime(it.lastIncoming)}</span></div>
+        <div class="inq-row"><span class="inq-from">${isUnread(it) ? '<span class="unread-dot"></span>' : ''}${esc(it.fromName)}</span><span class="inq-time">${fmtTime(it.worked ? it.worked.last : it.lastIncoming)}</span></div>
         <div class="inq-subj">${esc(it.subject)}</div>
         <div class="inq-snip">${esc(it.snippet)}</div>
         <div class="inq-meta">
+          ${it.worked ? `<span class="pill worked">${ic('check')}${esc(workedText(it.worked))}</span>` : ''}
           <span class="pill ${stKey(it)}">${it.tracking ? ic('eye') : ''}${esc(statusText(it))}</span>
           ${it.tracking ? `<span class="pill track-age" title="מאז התשובה האחרונה">${trackAge(it.lastActivity)}</span>` : ''}
           ${it.outbound ? `<span class="pill outbound" title="מייל שנשלח יזום מהדשבורד">${ic('mail')}מייל יזום</span>` : ''}
@@ -697,10 +746,12 @@ async function loadList() {
   const p = new URLSearchParams({ view: S.view, sub: S.sub });
   if (doneOn()) p.set('done', '1');
   if (S.view === 'member') p.set('member', S.member);
-  if (S.range !== '') { p.set('from', daysBack(+S.range)); p.set('to', daysBack(0)); }
+  if (isWorked()) { const r = wrParams(); p.set('from', r.from); p.set('to', r.to); }
+  else if (S.range !== '') { p.set('from', daysBack(+S.range)); p.set('to', daysBack(0)); }
   if (S.category) p.set('category', S.category);
   if (S.q) p.set('q', S.q);
-  const { items, counts, status, byCategory, subCounts } = await api('/inquiries?' + p);
+  const { items, counts, status, byCategory, subCounts, workedCounts } = await api('/inquiries?' + p);
+  if (S.view === 'member' && workedCounts) S.workedCounts = workedCounts;
   S.items = items; S.counts = counts; S.status = status; S.byCategory = byCategory || {}; S.subCounts = subCounts;
   renderTop(); renderStats(); renderTabs(); renderNotice();
   if (S.screen !== 'inbox') return;
@@ -922,7 +973,13 @@ async function addNote() {
 // ---------- events ----------
 function bindApp() {
   const go = b => setView(b.dataset.view, b.dataset.sub || 'open').catch(err => toast(err.message, 'err'));
-  $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
+  $('#tabs').addEventListener('click', e => {
+    const sc = e.target.closest('[data-screen]'); if (sc) return showScreen(sc.dataset.screen);
+    const wr = e.target.closest('[data-wr]');
+    if (wr) { if (wr.dataset.wr !== 'custom') S.wr = { preset: wr.dataset.wr }; return setView('member', 'worked', S.member).catch(err => toast(err.message, 'err')); }
+    const ms = e.target.closest('[data-msub]'); if (ms) return setView('member', ms.dataset.msub, S.member).catch(err => toast(err.message, 'err'));
+    const b = e.target.closest('[data-view]'); if (b) go(b);
+  });
   $('#stats').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
   $('#notice').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) go(b); });
   $('#main-nav').addEventListener('click', e => { const b = e.target.closest('[data-screen]'); if (b && b.dataset.screen !== S.screen) showScreen(b.dataset.screen); });
@@ -938,7 +995,8 @@ function bindApp() {
   let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => {
     S.q = e.target.value.trim();
     // חיפוש כללי: מקלידים בחיפוש → עוברים ל"הכל" (כל התצוגות וכל הקטגוריות)
-    if (S.q && (S.view !== 'all' || S.category || S.done)) { S.category = null; S.done = false; setView('all').catch(err => toast(err.message, 'err')); }
+    // במסך מזכירה (מנהל) – החיפוש נשאר בתוך הפניות שלה
+    if (S.q && S.view !== 'member' && (S.view !== 'all' || S.category || S.done)) { S.category = null; S.done = false; setView('all').catch(err => toast(err.message, 'err')); }
     else loadList();
   }, 250); });
   $('#list').addEventListener('click', e => { const li = e.target.closest('[data-id]'); if (li) openInquiry(li.dataset.id).catch(err => toast(err.message, 'err')); });
