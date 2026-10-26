@@ -391,17 +391,16 @@ class Engine {
 
   // ---------- הרשאות צפייה ----------
   // מנהל: הכול. חבר צוות: פניות כלליות (חדשות בלי מטפל/ת) + הפניות שלו (בטיפול / טופלו על ידו).
-  // בנוסף: כל הפניות שטופלו (של כל הצוות) – לצפייה וחיפוש בלבד (canEdit).
+  // בנוסף: כל הפניות שטופלו ושבטיפול (של כל הצוות) – לצפייה וחיפוש בלבד (canEdit).
   canSee(t, user) {
     if (this.isManager(user)) return true;
-    if (t.status === 'new' || t.status === 'handled') return true;
-    return (t.status === 'in_progress' || t.status === 'handled') && t.assignee === user.key;
+    return t.status === 'new' || t.status === 'handled' || t.status === 'in_progress';
   }
 
-  // פניה שטופלה על ידי מישהי אחרת – חבר/ת צוות רק צופה בה (לא לוקחת, לא עונה, לא משנה)
+  // פניה שטופלה / בטיפול של מישהי אחרת – חבר/ת צוות רק צופה בה (לא לוקחת, לא עונה, לא משנה)
   canEdit(t, user) {
     if (this.isManager(user)) return true;
-    return !(t.status === 'handled' && t.assignee !== user.key);
+    return !((t.status === 'handled' || t.status === 'in_progress') && t.assignee !== user.key);
   }
 
   inRange(iso, from, to) {
@@ -503,7 +502,7 @@ class Engine {
   getEdit(id, user) {
     const t = this.get(id, user);
     if (!this.canEdit(t, user)) throw new AppError(403, t.assignee
-      ? `הפניה טופלה על ידי ${this.userName(t.assignee)} – אפשר רק לצפות בה`
+      ? `הפניה ${t.status === 'in_progress' ? 'בטיפול של' : 'טופלה על ידי'} ${this.userName(t.assignee)} – אפשר רק לצפות בה`
       : 'הפניה טופלה – אפשר רק לצפות בה');
     return t;
   }

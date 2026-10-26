@@ -489,7 +489,7 @@ function renderDetail() {
   let composer;
   if (mine) composer = composerHtml(d);
   else if (d.status === 'new' || (esc_ && !d.assignee)) composer = `<div class="locked">כדי לענות, לחצו <b>"אני מטפל/ת בזה"</b>. כך אף אחד אחר לא יענה במקביל.</div>`;
-  else if (d.readOnly) composer = `<div class="locked">${ic('eye')} צפייה בלבד – הפניה טופלה על ידי <b>${esc(d.assigneeName || 'הצוות')}</b>. אפשר לקרוא ולחפש, בלי לקחת או לענות.</div>`;
+  else if (d.readOnly) composer = `<div class="locked">${ic('eye')} צפייה בלבד – הפניה ${d.status === 'in_progress' ? 'בטיפול של' : 'טופלה על ידי'} <b>${esc(d.assigneeName || 'הצוות')}</b>. אפשר לקרוא ולחפש, בלי לקחת או לענות.</div>`;
   else if (other) composer = `<div class="locked">${ic('lock')} <b>${esc(d.assigneeName)}</b> מטפל/ת בפניה הזו. אפשר לקרוא, אבל לא לענות.</div>`;
   else composer = '';
 
