@@ -72,7 +72,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 
 const S = {
-  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, catsOpen: false,
+  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, catsOpen: false, sideCatsOpen: ls.get('koh.sideCats', false),
   items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
@@ -300,6 +300,12 @@ function renderChips() {
   const n = S.view === 'mine' ? (c.mineDone || 0) + (c.mineTracking || 0) : c.handledAll || 0;
   const doneChip = isMgr() || !(S.view === 'open' || S.view === 'mine') ? ''
     : `<button class="chip ${d ? 'active' : ''}" data-done="1" style="--c:var(--green)">טופלו${n ? `<span class="n">${n}</span>` : ''}</button>`;
+  // סגור: כפתור אחד שמראה מה מסונן עכשיו; פתוח: כל התגיות
+  const cur = d ? { name: 'טופלו', color: 'var(--green)' } : S.cfg.categories.find(x => x.key === S.category);
+  $('#cats-side-btn').innerHTML = `${ic('tag')}<span class="csb-t">קטגוריות</span>${cur ? `<span class="csb-cur" style="--c:${cur.color}">${esc(cur.name)}</span>` : ''}${ic('chev', 'chev')}`;
+  $('#cats-side-btn').setAttribute('aria-expanded', S.sideCatsOpen);
+  $('#cats-side-btn').classList.toggle('open', S.sideCatsOpen);
+  $('#chips').classList.toggle('collapsed', !S.sideCatsOpen);
   $('#chips').innerHTML = doneChip + `<button class="chip ${!S.category && !d ? 'active' : ''}" data-cat="" style="--c:var(--ink-2)">הכל</button>` +
     S.cfg.categories.map(c => `<button class="chip ${S.category === c.key && !d ? 'active' : ''}" data-cat="${c.key}" style="--c:${c.color}">${esc(c.name)}${by[c.key] && !d ? `<span class="n">${by[c.key]}</span>` : ''}</button>`).join('');
 }
@@ -1072,6 +1078,7 @@ function bindApp() {
     const sb = e.target.closest('[data-sub]'); if (sb) return setView(S.view, sb.dataset.sub, S.member);
     const rg = e.target.closest('[data-range]'); if (rg) { S.range = rg.dataset.range; loadList(); }
   });
+  $('#cats-side-btn').addEventListener('click', () => { S.sideCatsOpen = !S.sideCatsOpen; ls.set('koh.sideCats', S.sideCatsOpen); renderChips(); });
   $('#chips').addEventListener('click', e => {
     if (e.target.closest('[data-done]')) { S.done = true; S.category = null; S._listHtml = null; return loadList().catch(err => toast(err.message, 'err')); }
     const b = e.target.closest('[data-cat]'); if (b) { S.done = false; S.category = b.dataset.cat || null; loadList(); }

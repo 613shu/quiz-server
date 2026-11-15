@@ -880,3 +880,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .inq.pushed, .inq.pushed::before, .note.push.pinned, .note.push.pinned::after { animation: none; }
 }
+
+/* סרגל הצד: סינון קטגוריות מאחורי כפתור אחד */
+.cats-side-btn { display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; font-size: 13.5px; font-weight: 600; letter-spacing: 0; cursor: pointer; text-align: right;
+  color: var(--ink-2); background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; transition: border-color .12s, color .12s; }
+.cats-side-btn:hover, .cats-side-btn.open { color: var(--ink); border-color: #4a4180; }
+.cats-side-btn .i { width: 15px; height: 15px; color: var(--muted); flex: none; }
+.cats-side-btn .chev { margin-inline-start: auto; transition: transform .2s; }
+.cats-side-btn.open .chev { transform: rotate(180deg); }
+.csb-cur { --c: var(--ink-2); display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 999px;
+  color: color-mix(in srgb, var(--c) 50%, white); background: color-mix(in srgb, var(--c) 18%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+.csb-t { white-space: nowrap; }
+.side-h.cats-h { padding-inline: 4px; }
+.chips.collapsed { display: none; }
+.chips:not(.collapsed) { margin-top: 8px; animation: cats-in .18s ease-out; }
+@media (max-width: 900px) { .chips.collapsed { display: flex; } }
