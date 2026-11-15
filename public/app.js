@@ -284,7 +284,7 @@ function renderTabs() {
   const admin = isMgr();
   $('#main-nav').hidden = !admin;
   if (admin) {
-    const nav = [['stats', 'ניהול מענה'], ['inbox', 'פניות', S.counts.open], ['team', 'ניהול צוות']]
+    const nav = [['stats', 'ניהול מענה'], ['inbox', 'כל הפניות', S.counts.open], ['team', 'ניהול צוות']]
       .map(([k, l, n]) => `<button class="nav-b ${S.screen === k ? 'on' : ''}" data-screen="${k}" ${S.screen === k ? 'aria-current="page"' : ''}>${l}${n ? `<span class="nav-n">${n}</span>` : ''}</button>`).join('');
     if ($('#main-nav').innerHTML !== nav) $('#main-nav').innerHTML = nav;
   }

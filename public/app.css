@@ -895,3 +895,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chips.collapsed { display: none; }
 .chips:not(.collapsed) { margin-top: 8px; animation: cats-in .18s ease-out; }
 @media (max-width: 900px) { .chips.collapsed { display: flex; } }
+
+/* ניהול מענה: "כרגע" – כפתורים ברורים שמובילים לפניות + מעבר לדשבורד */
+.now-bar { gap: 8px; }
+.now-b { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--card); padding: 7px 12px; border-radius: 11px;
+  transition: border-color .12s, background .12s, transform .08s; }
+.now-b:hover { background: var(--hover); border-color: #4a4180; transform: translateY(-1px); }
+.now-b.warn { border-color: rgba(255,93,108,.4); }
+.now-go { margin-inline-start: 6px; color: var(--muted); transition: transform .15s, color .15s; }
+.now-b:hover .now-go { color: var(--ink); transform: translateX(-3px); }
+.now-cta { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; border: 0; cursor: pointer; font: inherit; font-size: 14px; font-weight: 700;
+  color: #fff; background: var(--warm); box-shadow: var(--warm-glow); padding: 9px 16px; border-radius: 12px; transition: transform .08s, filter .12s; }
+.now-cta:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.now-cta .i { width: 17px; height: 17px; }
+@media (max-width: 900px) { .now-cta { margin-inline-start: 0; flex-basis: 100%; justify-content: center; } }

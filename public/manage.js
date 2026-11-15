@@ -101,13 +101,16 @@
     const max = Math.max(0, ...members.map(m => m.range));
     const label = d.from === d.to ? (d.from === d.today ? 'היום' : fmtDay(d.from)) : `<bdi>${fmtDay(d.from)}</bdi> – <bdi>${fmtDay(d.to)}</bdi>`;
     const now = [
-      ['open', t.general, 'פניות כלליות בלי מטפל'],
+      ['open', t.general, 'חדשות בלי מטפל'],
+      ['open', t.inProgress, 'בטיפול הצוות'],
       ['escalated', t.escalatedOpen, 'אצל המנהל'],
       ['overdue', t.overdue, `ממתינות מעל ${d.overdueHours} שעות`, true],
-    ].map(([v, n, l, warn]) => `<button class="now-b ${warn && n ? 'warn' : ''}" data-goview="${v}"><b>${n}</b> ${l}</button>`).join('<span class="now-sep"></span>');
+    ].map(([v, n, l, warn]) => `<button class="now-b ${warn && n ? 'warn' : ''}" data-goview="${v}" title="מעבר לפניות"><b>${n}</b> ${l}<span class="now-go" aria-hidden="true">←</span></button>`).join('');
     const multi = d.days.length > 1;
     const html = `<div class="mg-wrap">
-      <div class="now-bar"><span class="now-h">כרגע</span>${now}</div>
+      <div class="now-bar"><span class="now-h">כרגע</span>${now}
+        <button class="now-cta" data-goview="open">${'<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></svg>'}לדשבורד הפניות<span aria-hidden="true">←</span></button>
+      </div>
       <div class="mg-head">
         <div><h2>ניהול מענה</h2><p class="muted">הנתונים בעמוד מתייחסים לתקופה שנבחרה: <b class="rng">${label}</b></p></div>
         <div class="range">
