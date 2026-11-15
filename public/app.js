@@ -33,6 +33,10 @@ const ICONS = {
   image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+  send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>',
+  tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
 };
 const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 const isMgr = () => !!(S.me && S.me.manager);
@@ -68,7 +72,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 
 const S = {
-  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {},
+  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, catsOpen: false,
   items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
@@ -327,6 +331,7 @@ function renderListHead() {
 function renderNotice() {
   const c = S.counts, el = $('#notice');
   const parts = [];
+  if (c.pushed) parts.push(`<button class="nt push" data-view="mine" data-sub="open"><span class="nt-ic">${ic('bell')}</span><span>${c.pushed === 1 ? 'יש לך <b>הודעה אחת</b> מהמנהל' : `יש לך <b>${c.pushed}</b> הודעות מהמנהל`} – בראש הפניות הפתוחות</span><span class="nt-go">לצפייה ←</span></button>`);
   if (c.mineReturned) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('ret')}</span><span>יש לך <b>${c.mineReturned}</b> ${c.mineReturned === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
   if (c.mineOverdue) parts.push(`<button class="nt alert" data-view="mine" data-sub="overdue"><span class="nt-ic">${ic('clock')}</span><span><b>${c.mineOverdue}</b> מהפניות שלך ממתינות למענה יותר מ-${S.cfg.overdueHours} שעות</span><span class="nt-go">לצפייה ←</span></button>`);
   el.hidden = !parts.length;
@@ -361,12 +366,13 @@ function renderList() {
     return;
   }
   const html = S.items.map(it => `
-    <li class="inq ${it.id === S.selId ? 'sel' : ''}" data-id="${esc(it.id)}" style="--s:${STATUS_COLOR[stKey(it)]}">
+    <li class="inq ${it.id === S.selId ? 'sel' : ''} ${it.push ? 'pushed' : ''}" data-id="${esc(it.id)}" style="--s:${STATUS_COLOR[stKey(it)]}">
       ${avatar(it.fromName, custColor(it.fromEmail))}
       <div class="inq-main">
         <div class="inq-row"><span class="inq-from">${isUnread(it) ? '<span class="unread-dot"></span>' : ''}${esc(it.fromName)}</span><span class="inq-time">${fmtTime(it.worked ? it.worked.last : it.lastIncoming)}</span></div>
         <div class="inq-subj">${esc(it.subject)}</div>
-        <div class="inq-snip">${esc(it.snippet)}</div>
+        ${it.push ? `<div class="inq-push"><span class="ip-tag">${ic('bell')}הודעה מהמנהל · ${esc(it.push.from)}</span>${it.push.text ? `<span class="ip-text">${esc(it.push.text)}</span>` : ''}</div>`
+          : `<div class="inq-snip">${esc(it.snippet)}</div>`}
         <div class="inq-meta">
           ${it.worked ? `<span class="pill worked">${ic('check')}${esc(workedText(it.worked))}</span>` : ''}
           <span class="pill ${stKey(it)}">${it.tracking ? ic('eye') : ''}${esc(statusText(it))}</span>
@@ -377,6 +383,7 @@ function renderList() {
           ${it.returned ? '<span class="pill returned">הלקוח חזר</span>' : ''}
           ${it.overdue ? `<span class="pill overdue">${waitText(it.lastIncoming)}</span>` : ''}
           ${ownerTag(it)}
+          ${it.pushedTo ? `<span class="pill pushed-to" title="ההודעה שהקפצת עוד לא נקראה">${ic('bell')}הוקפץ אל ${esc(it.pushedTo.map(x => x.name).join(', '))} · טרם נקרא</span>` : ''}
           ${it.categories.map(catPill).join('')}
           ${it.hasAttachments ? `<span class="mini">${ic('clip')}</span>` : ''}
           ${it.messageCount > 1 ? `<span class="mini">${ic('chat')} ${it.messageCount}</span>` : ''}
@@ -455,11 +462,11 @@ function timeline(d) {
   const items = [
     // "היסטוריה קודמת" רק בהודעה האמיתית הראשונה שיש בה ציטוט שלא פורק לבועות
     ...d.messages.map(m => ({ at: m.date, rank: 1, html: bubble(m, m === d.messages.find(x => x.quoted)) })),
-    ...d.events.filter(e => e.action !== 'reply').map(e => {
+    ...d.events.filter(e => !['reply', 'push', 'push-seen'].includes(e.action)).map(e => {
       const c = e.userKey ? teamColor(e.userKey) : '#8a90ab';
       return { at: e.at, rank: e.action === 'take' ? 0 : 2, html: `<div class="event" style="--c:${c}"><i class="ev-dot"></i><b>${esc(e.user || '')}</b> ${esc(e.text)} · ${hm(e.at)}</div>` };
     }),
-    ...(d.notes || []).map(n => ({ at: n.at, rank: 3, html: `<div class="note" style="--c:${teamColor(n.userKey)}">
+    ...(d.notes || []).map(n => ({ at: n.at, rank: 3, html: n.kind === 'push' ? pushNote(n) : `<div class="note" style="--c:${teamColor(n.userKey)}">
       <div class="n-head"><span class="n-tag">${n.kind === 'escalate' ? 'הערה בהעברה למנהל' : 'הערה פנימית'}</span><b>${esc(n.user)}</b><span class="n-time">${hm(n.at)}</span>
         ${n.canDelete && !(S.detail && S.detail.readOnly) ? `<button class="n-del" data-note-del="${esc(n.id)}" title="מחיקת ההערה">✕</button>` : ''}</div>
       ${n.text ? `<div class="n-body">${esc(n.text)}</div>` : ''}
@@ -510,8 +517,61 @@ function detailActions(d) {
   return '';
 }
 
+// הודעה שהמנהל הקפיץ – בשיחה (ובראש הפניה, כל עוד לא נקראה)
+function pushNote(n, pinned) {
+  const seen = n.seenAt ? `${ic('check')} נקראה${n.toName ? ` ע״י ${esc(n.toName)}` : ''} · ${hm(n.seenAt)}` : `${ic('clock')} טרם נקראה`;
+  return `<div class="note push ${pinned ? 'pinned' : ''}">
+    <div class="n-head">
+      <span class="pn-badge">${ic('bell')}הודעה מהמנהל</span>
+      <b>${esc(n.user)}</b>${n.toName ? `<span class="pn-to">אל ${esc(n.toName)}</span>` : ''}
+      <span class="n-time">${hm(n.at)}</span>
+      ${n.canDelete && !pinned && !(S.detail && S.detail.readOnly) ? `<button class="n-del" data-note-del="${esc(n.id)}" title="מחיקת ההודעה">✕</button>` : ''}
+    </div>
+    ${n.text ? `<div class="n-body">${esc(n.text)}</div>` : `<div class="n-body pn-empty">בלי טקסט – בקשה לעבור על הפניה</div>`}
+    <div class="pn-foot">${n.canAck ? `<button class="btn sm pn-ack" data-push-ack>${ic('check')} קראתי</button><span class="pn-hint">ההודעה תרד מראש הרשימה</span>` : `<span class="pn-seen ${n.seenAt ? 'ok' : ''}">${seen}</span>`}</div>
+  </div>`;
+}
+const pinnedPushes = d => (d.notes || []).filter(n => n.kind === 'push' && n.canAck);
+
+// למי להקפיץ כברירת מחדל: מי שהפניה אצלה; בפניה שהועברה למנהל – מי שהעבירה
+function pushDefault(d) {
+  const me = S.me.key, ok = k => k && k !== me && pushTargets().some(u => u.key === k);
+  if (ok(d.assignee)) return d.assignee;
+  const esc_ = [...(d.events || [])].reverse().find(e => e.action === 'escalate');
+  return esc_ && ok(esc_.userKey) ? esc_.userKey : '';
+}
+const pushTargets = () => (S.cfg.team || []).filter(u => !u.deleted && u.key !== S.me.key && u.role !== 'manager');
+
+// מנהל: במקום הערה פנימית – הקפצת הודעה למזכירה
+function pushBox(d) {
+  const to = S.pushTo[d.id] ?? pushDefault(d);
+  const list = pushTargets();
+  return `<div class="push-box">
+    <div class="pb-head"><span class="pb-ic">${ic('bell')}</span><span class="pb-title">הקפץ הודעה זו למזכירה</span>
+      <span class="pb-sub">תופיע אצלה בראש הפתוחות, מודגשת, עם השם שלך · לא נשלחת לתורם</span></div>
+    <div class="pb-to" role="radiogroup" aria-label="למי להקפיץ">${list.map(u => `<button type="button" role="radio" aria-checked="${u.key === to}" class="pb-who ${u.key === to ? 'on' : ''}" data-push-to="${esc(u.key)}" style="--c:${teamColor(u.key)}">${avatar(u.name, teamColor(u.key), 'xs team')}${esc(u.name)}${u.key === d.assignee ? '<i>אצלה</i>' : ''}</button>`).join('') || '<span class="muted">אין מזכירות פעילות</span>'}</div>
+    <div class="nb-row">
+      <textarea id="note-text" rows="1" maxlength="2000" placeholder="הוספת טקסט (לא חובה) – מה חשוב שתדע…">${esc(S.noteDraft[d.id] || '')}</textarea>
+      <button type="button" class="btn sm push-btn" id="push-send" ${to ? '' : 'disabled'}>${ic('send')} הקפצה</button>
+    </div>
+    ${to && to !== d.assignee && d.status !== 'handled' ? `<div class="pb-note">הפניה תעבור לטיפול של ${esc(teamName(to))}</div>` : to && to !== d.assignee ? `<div class="pb-note">הפניה תיפתח מחדש אצל ${esc(teamName(to))}</div>` : ''}
+  </div>`;
+}
+
+// סיווג קטגוריות – כפתור אחד שפותח/סוגר את כל התגיות. סגור: רק מה שנבחר.
+function catsBox(d) {
+  const chosen = S.cfg.categories.filter(c => d.categories.includes(c.key));
+  return `<div class="d-cats ${S.catsOpen ? 'open' : ''}" id="d-cats">
+    <button type="button" class="cats-btn" id="cats-btn" aria-expanded="${S.catsOpen}">${ic('tag')}<span>סיווג קטגוריות</span>${ic('chev', 'chev')}</button>
+    <span class="cats-sel">${chosen.map(c => `<span class="cat-dot" style="--c:${c.color}">${esc(c.name)}</span>`).join('')}</span>
+    <div class="cats-all">${S.cfg.categories.map(c =>
+      `<button class="cat-toggle ${d.categories.includes(c.key) ? 'on' : ''}" data-cat="${c.key}" style="--c:${c.color}" ${d.readOnly ? 'disabled' : ''}>${esc(c.name)}</button>`).join('')}</div>
+  </div>`;
+}
+
 // הערות פנימיות – לא נשלחות לתורם
 function notesBox(d) {
+  if (isMgr()) return pushBox(d);
   return `<div class="notes-box">
     <div class="nb-head"><span>הערה פנימית</span><span class="nb-who">רואים: את/ה, המנהל, ומי שהפניה אצלו · לא נשלחת לתורם</span></div>
     <div class="nb-row">
@@ -564,10 +624,10 @@ function renderDetail() {
         ${owner}
       </div>
       ${actions ? `<div class="d-actions">${actions}</div>` : ''}
-      <div class="d-cats"><span class="lbl">קטגוריה:</span>${S.cfg.categories.map(c =>
-        `<button class="cat-toggle ${d.categories.includes(c.key) ? 'on' : ''}" data-cat="${c.key}" style="--c:${c.color}" ${d.readOnly ? 'disabled' : ''}>${esc(c.name)}</button>`).join('')}</div>
+      ${catsBox(d)}
       ${d.readOnly ? '' : notesBox(d)}
     </div>
+    ${pinnedPushes(d).map(n => pushNote(n, true)).join('')}
     ${composer}
     <div class="convo" id="convo">${timeline(d)}</div>`;
   renderFiles();
@@ -782,6 +842,7 @@ function setView(v, sub, member) {
 }
 
 async function openInquiry(id) {
+  if (id !== S.selId) S.catsOpen = false;
   S.selId = id;
   S.detail = await api('/inquiries/' + encodeURIComponent(id));
   if (S.detail.hidden) return gone();
@@ -970,6 +1031,29 @@ async function addNote() {
   } catch (e) { toast(e.message, 'err'); b.disabled = false; }
 }
 
+async function sendPush() {
+  const d = S.detail, ta = $('#note-text'), b = $('#push-send'); if (!d || !b || b.disabled) return;
+  const to = S.pushTo[d.id] ?? pushDefault(d);
+  if (!to) { toast('בחרו למי להקפיץ את ההודעה', 'err'); return; }
+  b.disabled = true; b.innerHTML = '<span class="spin"></span> מקפיץ…';
+  try {
+    S.detail = await api(`/inquiries/${encodeURIComponent(d.id)}/push`, { method: 'POST', json: { to, text: ta ? ta.value.trim() : '' } });
+    delete S.noteDraft[d.id]; delete S.pushTo[d.id];
+    toast(`ההודעה הוקפצה אל ${teamName(to)}`, 'ok');
+    if (S.detail.hidden) { S.detail = null; S.selId = null; }
+    renderDetail(); loadList().catch(() => {});
+  } catch (e) { toast(e.message, 'err'); renderDetail(); }
+}
+
+async function ackPush(btn) {
+  const d = S.detail; if (!d) return;
+  btn.disabled = true;
+  try {
+    S.detail = await api(`/inquiries/${encodeURIComponent(d.id)}/push/seen`, { method: 'POST' });
+    renderDetail(); loadList().catch(() => {});
+  } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
+}
+
 // ---------- events ----------
 function bindApp() {
   const go = b => setView(b.dataset.view, b.dataset.sub || 'open').catch(err => toast(err.message, 'err'));
@@ -1008,6 +1092,11 @@ function bindApp() {
     if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? 'הצג היסטוריה קודמת' : 'הסתר היסטוריה'; return; }
     const rm = e.target.closest('[data-rm]'); if (rm) { filesOf(S.detail.id).splice(+rm.dataset.rm, 1); renderFiles(); return; }
     if (e.target.closest('#note-add')) return addNote();
+    if (e.target.closest('#push-send')) return sendPush();
+    if (e.target.closest('[data-push-ack]')) return ackPush(e.target.closest('[data-push-ack]'));
+    const pt = e.target.closest('[data-push-to]');
+    if (pt) { S.pushTo[S.detail.id] = pt.dataset.pushTo; renderDetail(); return; }
+    if (e.target.closest('#cats-btn')) { S.catsOpen = !S.catsOpen; $('#d-cats').classList.toggle('open', S.catsOpen); $('#cats-btn').setAttribute('aria-expanded', S.catsOpen); return; }
     if (e.target.closest('#send-track-btn')) return sendReply(true);
     const nd = e.target.closest('[data-note-del]');
     if (nd) {
@@ -1038,7 +1127,7 @@ function bindApp() {
   // Enter בשדה הנמען לא שולח את המייל – רק עובר לכתיבת התשובה
   det.addEventListener('keydown', e => { if (e.target.id === 'reply-to' && e.key === 'Enter') { e.preventDefault(); $('#reply-body')?.focus(); } });
   det.addEventListener('keydown', e => { if (e.target.id === 'reply-body' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); } });
-  det.addEventListener('keydown', e => { if (e.target.id === 'note-text' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addNote(); } });
+  det.addEventListener('keydown', e => { if (e.target.id === 'note-text' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); isMgr() ? sendPush() : addNote(); } });
   det.addEventListener('input', e => {
     if (e.target.id === 'reply-body') S.drafts[S.detail.id] = e.target.value;
     if (e.target.id === 'note-text') { S.noteDraft[S.detail.id] = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; }

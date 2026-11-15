@@ -369,17 +369,36 @@ class Engine {
     };
   }
 
+  // הקפצות מהמנהל: הודעות שהמנהל הקפיץ למזכירה. "פתוחה" = עוד לא אישרה שקראה.
+  pushesOf(t) { return this.notes.filter(n => n.kind === 'push' && t.ids.includes(n.t)); }
+  openPushes(t, key) { return this.pushesOf(t).filter(n => n.to === key && !n.seenAt); }
+  // סיכום לפי מי שמסתכל: הקפצה פתוחה אליו/ה; למנהל – למי הוקפץ ועוד לא נקרא
+  summaryFor(t, user, who = user.key) {
+    const s = this.summary(t);
+    const open = this.openPushes(t, who);
+    if (open.length) {
+      const last = open[open.length - 1];
+      s.push = { count: open.length, at: last.at, from: this.userName(last.user), fromKey: last.user, text: (last.text || '').replace(/\s+/g, ' ').slice(0, 140) };
+    }
+    if (this.isManager(user)) {
+      const waiting = this.pushesOf(t).filter(n => !n.seenAt);
+      if (waiting.length) s.pushedTo = [...new Set(waiting.map(n => n.to))].map(k => ({ key: k, name: this.userName(k) }));
+    }
+    return s;
+  }
+
   // הערות פנימיות: כל מי שפותח/ת את הפניה רואה את כל ההערות. מחיקה – רק הכותב/ת או המנהל.
   notesFor(t, user) {
     const mgr = this.isManager(user);
     return this.notes.filter(n => t.ids.includes(n.t))
       .filter(n => this.noteVisible(n, t, user))
-      .map(n => ({ id: n.id, at: n.at, user: this.userName(n.user), userKey: n.user, text: n.text, kind: n.kind || 'note', canDelete: mgr || n.user === user.key, files: this.noteFiles(n) }));
+      .map(n => ({ id: n.id, at: n.at, user: this.userName(n.user), userKey: n.user, text: n.text, kind: n.kind || 'note', canDelete: mgr || n.user === user.key, files: this.noteFiles(n),
+        ...(n.kind === 'push' ? { to: n.to, toName: this.userName(n.to), seenAt: n.seenAt || null, canAck: n.to === user.key && !n.seenAt } : {}) }));
   }
 
   detail(t, user) {
     return {
-      ...this.summary(t),
+      ...this.summaryFor(t, user),
       messages: t.messages,
       replyTo: t.replyTarget.address,
       trackDefault: t.trackDefault,
@@ -419,8 +438,10 @@ class Engine {
     // מנהל → מזכירה: הפניות שטיפלה בהן (ענתה / סימנה כטופל) בטווח – בדיוק אותה ספירה כמו בטבלת ניהול מענה
     if (view === 'member' && sub === 'worked') return this.workedList(who, { from, to, q }, user);
     const personal = t => t.assignee === who;
+    // הקפצה פתוחה מהמנהל – הפניה בפתוחות שלה (גם אם כבר טופלה), עד שתאשר שקראה
+    const pushed = t => this.openPushes(t, who).length > 0;
     const subF = {
-      open: t => t.status === 'in_progress' && personal(t),
+      open: t => (t.status === 'in_progress' && personal(t)) || pushed(t),
       returned: t => t.status === 'in_progress' && personal(t) && (t.returned || t.assigned),
       overdue: t => t.status === 'in_progress' && personal(t) && this.summary(t).overdue,
       tracking: t => t.tracking && personal(t),
@@ -428,7 +449,7 @@ class Engine {
     };
     const f = {
       all: t => this.canSee(t, user),
-      open: mgr ? (t => t.status === 'new' || t.status === 'in_progress') : (t => t.status === 'new'),
+      open: mgr ? (t => t.status === 'new' || t.status === 'in_progress') : (t => t.status === 'new' || pushed(t)),
       mine: subF[sub] || subF.open,
       member: subF[sub] || subF.open,
       handled: t => t.status === 'handled' && !t.tracking && this.inRange(t.lastActivity, from, to),
@@ -460,18 +481,23 @@ class Engine {
         ...this.notesFor(t, user).map(n => n.text)].some(x => (x || '').toLowerCase().includes(s)));
     }
     const key = (view === 'all' || doneMode || sub === 'done' || sub === 'tracking' || view === 'handled' || view === 'tracking') ? 'lastActivity' : 'lastIncoming';
-    items.sort((a, b) => b[key].localeCompare(a[key]));
-    return { items: items.map(t => this.summary(t)), byCategory, subCounts };
+    // הודעות שהמנהל הקפיץ – בראש הרשימה (האחרונה ראשונה), אחריהן הסדר הרגיל
+    const pushAt = t => { const o = this.openPushes(t, who); return o.length ? o[o.length - 1].at : ''; };
+    items.sort((a, b) => pushAt(b).localeCompare(pushAt(a)) || b[key].localeCompare(a[key]));
+    return { items: items.map(t => this.summaryFor(t, user, who)), byCategory, subCounts };
   }
 
   counts(user) {
     const mgr = this.isManager(user), me = user.key, today = ilDay(new Date().toISOString());
     const c = { all: 0, general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0, handledAll: 0,
-      handled: 0, tracking: 0, escalated: 0, escalatedOpen: 0, ignored: 0, overdue: 0 };
+      handled: 0, tracking: 0, escalated: 0, escalatedOpen: 0, ignored: 0, overdue: 0, pushed: 0 };
     for (const t of this.threads().values()) {
       const s = this.summary(t);
       if (this.canSee(t, user)) c.all++;
       if (t.status === 'new') c.general++;
+      const pushed = this.openPushes(t, me).length > 0;
+      if (pushed) c.pushed++;
+      if (pushed && t.status !== 'in_progress') c.mine++;
       if (t.status === 'in_progress' && t.assignee === me) {
         c.mine++;
         if (t.returned || t.assigned) c.mineReturned++;
@@ -579,6 +605,7 @@ class Engine {
       // נשארת של מי שטיפל בה (כדי שתגובה חוזרת תגיע אליו). בתיקיית המנהל / בלי מטפל – של מי שסימן.
       await this.setOwner(t, t.status === 'escalated' || !t.assignee ? user.key : t.assignee);
       await this.p.modifyLabels(t.uids, [], [L.esc, L.assigned]);
+      this.ackPushes(t, user);
       const what = track ? 'סימן/ה כטופל – במעקב' : 'סימן/ה כטופל – הושלם';
       this.addLog(id, user, 'handled', t.status === 'escalated' ? `${what} (הוסרה מתיקיית המנהל)` : what);
       return this.refresh(id, user);
@@ -618,14 +645,19 @@ class Engine {
       if (!this.users.isActive(toKey)) throw new AppError(400, 'חבר הצוות לא נמצא');
       const t = this.getEdit(id, user);
       if (t.assignee === toKey && t.status === 'in_progress') throw new AppError(409, `הפניה כבר אצל ${this.userName(toKey)}`);
-      await this.setOwner(t, toKey);
-      await this.p.modifyLabels(t.uids, toKey === user.key ? [] : [L.assigned], [L.esc, L.ignore, L.done, L.followup, L.track]);
-      // פניה שכבר נענתה – נפתחת מחדש אצל מי שקיבל/ה אותה
-      if (t.raw.length && this.isOut(t.raw[t.raw.length - 1])) await this.p.modifyLabels([t.lastUid], [L.reopen, L.keep]);
-      else await this.p.modifyLabels([t.lastUid], [L.keep]);
+      await this.moveTo(t, user, toKey);
       this.addLog(id, user, 'assign', `העביר/ה לטיפול של ${this.userName(toKey)}`);
       return this.refresh(id, user);
     });
+  }
+
+  // העברת פניה לחבר צוות (בלי נעילה – נקרא מתוך פעולה נעולה)
+  async moveTo(t, user, toKey) {
+    await this.setOwner(t, toKey);
+    await this.p.modifyLabels(t.uids, toKey === user.key ? [] : [L.assigned], [L.esc, L.ignore, L.done, L.followup, L.track]);
+    // פניה שכבר נענתה – נפתחת מחדש אצל מי שקיבל/ה אותה
+    if (t.raw.length && this.isOut(t.raw[t.raw.length - 1])) await this.p.modifyLabels([t.lastUid], [L.reopen, L.keep]);
+    else await this.p.modifyLabels([t.lastUid], [L.keep]);
   }
 
   ignore(id, user) {
@@ -703,6 +735,7 @@ class Engine {
       // הבעלות (KOH/by) נשארת – תגובה חוזרת של הלקוח תגיע לאותו חבר צוות.
       const tr = track && t.status !== 'escalated';
       await this.p.modifyLabels(t.uids, tr ? [L.track] : [], [L.reopen, L.followup, L.assigned, ...(tr ? [] : [L.track])]).catch(e => console.error('[reply] labels', e.message));
+      this.ackPushes(t, user);
       this.addLog(id, user, 'reply', (same ? `השיב/ה ל-${toText}` : `השיב/ה ל-${toText} (נמענים שונים מברירת המחדל – הפונה ${t.replyTarget.address})`) + (tr ? ' · טופלו – במעקב' : ''));
       return this.refresh(id, user);
     });
@@ -815,6 +848,43 @@ class Engine {
       if (n.user !== user.key && !this.isManager(user)) throw new AppError(403, 'אפשר למחוק רק הערה שכתבת');
       this.notes = this.notes.filter(x => x !== n);
       this.saveStateSoon();
+      return this.refresh(id, user);
+    });
+  }
+
+  // ---------- הקפצת הודעה מהמנהל למזכירה ----------
+  // ההודעה מופיעה אצלה בראש הפתוחות עם מסגרת בולטת, עד שהיא מאשרת שקראה (או עונה / מסמנת כטופל).
+  // אם הפניה לא אצלה (אצל המנהל, חדשה, אצל מישהי אחרת) – היא עוברת אליה.
+  pushToMember(id, user, toKey, text) {
+    return this.locked(id, async () => {
+      if (!this.isManager(user)) throw new AppError(403, 'רק המנהל יכול להקפיץ הודעה');
+      if (!toKey || !this.users.isActive(toKey)) throw new AppError(400, 'בחרו למי להקפיץ את ההודעה');
+      if (toKey === user.key) throw new AppError(400, 'אי אפשר להקפיץ הודעה לעצמך');
+      const t = this.getEdit(id, user);
+      const n = this.makeNote(t.id, user, text, 'push', true);
+      n.to = toKey;
+      const hers = t.assignee === toKey && ['in_progress', 'handled'].includes(t.status);
+      if (!hers) await this.moveTo(t, user, toKey);
+      this.notes.push(n);
+      await this.saveStateNow();
+      this.addLog(id, user, 'push', `הקפיץ/ה הודעה אל ${this.userName(toKey)}` + (hers ? '' : ' (הפניה עברה אליה)'));
+      return this.refresh(id, user);
+    });
+  }
+
+  ackPushes(t, user) {
+    const open = this.openPushes(t, user.key);
+    if (!open.length) return 0;
+    const at = new Date().toISOString();
+    for (const n of open) n.seenAt = at;
+    this.saveStateSoon();
+    return open.length;
+  }
+
+  ackPush(id, user) {
+    return this.locked(id, async () => {
+      const t = this.get(id, user);
+      if (this.ackPushes(t, user)) this.addLog(id, user, 'push-seen', 'אישר/ה שקרא/ה את ההודעה מהמנהל');
       return this.refresh(id, user);
     });
   }

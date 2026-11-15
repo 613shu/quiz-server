@@ -108,6 +108,8 @@ app.post('/api/inquiries/:id/categories', h(req => engine.setCategories(req.para
 
 app.post('/api/inquiries/:id/assign', h(req => engine.assign(req.params.id, req.user, String(req.body.to || ''))));
 app.post('/api/inquiries/:id/notes', h(req => engine.addNote(req.params.id, req.user, req.body.text)));
+app.post('/api/inquiries/:id/push', h(req => engine.pushToMember(req.params.id, req.user, String((req.body && req.body.to) || ''), String((req.body && req.body.text) || ''))));
+app.post('/api/inquiries/:id/push/seen', h(req => engine.ackPush(req.params.id, req.user)));
 app.delete('/api/inquiries/:id/notes/:noteId', h(req => engine.deleteNote(req.params.id, req.params.noteId, req.user)));
 
 // ---------- סטטיסטיקה וניהול צוות (מנהל) ----------

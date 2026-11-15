@@ -779,3 +779,104 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .side-h.who-title { display: flex; padding: 4px 6px; }
   .side-sub { display: none; }
 }
+
+/* ============================================================
+   הקפצת הודעה מהמנהל למזכירה
+   צבע ייחודי (סגול-כחול זוהר) – שונה מההערה הפנימית (צהוב)
+   ============================================================ */
+:root { --mgr: #b18cff; --mgr-2: #6f8dff; --mgr-ink: #e6dcff;
+  --mgr-grad: linear-gradient(135deg, #b18cff 0%, #8a8cff 50%, #6f8dff 100%); }
+@property --ang { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes ang-spin { to { --ang: 360deg; } }
+@keyframes mgr-glow { 50% { box-shadow: 0 0 0 1px rgba(177,140,255,.55), 0 10px 34px rgba(140,130,255,.42); } }
+
+/* ברשימה: מסגרת זוהרת מסתובבת */
+.inq.pushed { background: linear-gradient(135deg, rgba(177,140,255,.16), rgba(111,141,255,.07) 70%), var(--card-2);
+  box-shadow: 0 0 0 1px rgba(177,140,255,.35), 0 8px 26px rgba(140,130,255,.25); animation: mgr-glow 2.8s ease-in-out infinite; }
+.inq.pushed::before { content: ''; position: absolute; inset: -1.5px; border-radius: 16px; padding: 1.5px; pointer-events: none;
+  background: conic-gradient(from var(--ang), #b18cff, #6f8dff 25%, rgba(111,141,255,.15) 45%, #ff8fd0 70%, #b18cff);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: ang-spin 4.5s linear infinite; }
+.inq.pushed::after { background: var(--mgr-grad); box-shadow: 0 0 12px var(--mgr); }
+.inq-push { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; padding: 7px 10px; border-radius: 11px;
+  background: rgba(177,140,255,.10); border: 1px solid rgba(177,140,255,.25); }
+.ip-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; color: var(--mgr-ink); }
+.ip-tag .i { width: 13px; height: 13px; color: var(--mgr); }
+.ip-text { font-size: 13px; color: var(--ink-2); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pill.pushed-to { color: var(--mgr-ink); background: rgba(177,140,255,.14); box-shadow: inset 0 0 0 1px rgba(177,140,255,.35); }
+.pill.pushed-to .i { width: 12px; height: 12px; }
+
+/* באנר עליון */
+.nt.push { --c: var(--mgr); background: linear-gradient(90deg, rgba(177,140,255,.24), rgba(111,141,255,.07)); }
+.nt.push .nt-ic .i { color: var(--mgr-ink); }
+
+/* בשיחה: כרטיס ההודעה */
+.note.push { --c: var(--mgr); width: min(600px, 94%); padding: 11px 15px 10px; border-radius: 16px;
+  background: linear-gradient(135deg, rgba(177,140,255,.16), rgba(111,141,255,.06)); border: 1px solid rgba(177,140,255,.4);
+  border-inline-start: 4px solid var(--mgr); position: relative; box-shadow: 0 8px 26px rgba(120,110,255,.14); }
+.pn-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: #1b1040; background: var(--mgr-grad);
+  padding: 2px 10px 2px 9px; border-radius: 999px; box-shadow: 0 2px 10px rgba(140,130,255,.35); }
+.pn-badge .i { width: 12px; height: 12px; }
+.note.push .n-head b { color: var(--mgr-ink); }
+.pn-to { font-size: 12px; color: var(--muted); }
+.pn-to::before { content: '← '; }
+.note.push .n-body { font-size: 14.5px; margin-top: 7px; }
+.pn-empty { color: var(--ink-2); font-style: italic; }
+.pn-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.pn-seen { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); }
+.pn-seen.ok { color: #9be8c4; }
+.pn-seen .i { width: 12px; height: 12px; }
+.pn-ack { background: var(--mgr-grad); color: #1b1040; font-weight: 700; box-shadow: 0 4px 14px rgba(140,130,255,.35); }
+.pn-ack .i { width: 14px; height: 14px; }
+.pn-hint { font-size: 11.5px; color: var(--muted); }
+/* מוצמדת בראש הפניה – כל עוד לא נקראה */
+.note.push.pinned { display: block; width: auto; align-self: stretch; margin: 14px 22px 0; animation: mgr-glow 2.8s ease-in-out infinite; }
+.note.push.pinned::after { content: ''; position: absolute; inset: -1.5px; border-radius: 17px; padding: 1.5px; pointer-events: none;
+  background: conic-gradient(from var(--ang), #b18cff, #6f8dff 25%, rgba(111,141,255,.15) 45%, #ff8fd0 70%, #b18cff);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: ang-spin 4.5s linear infinite; }
+
+/* מנהל: תיבת ההקפצה (במקום "הערה פנימית") */
+.push-box { margin-top: 14px; border-radius: 15px; padding: 11px 12px 12px; position: relative;
+  background: linear-gradient(135deg, rgba(177,140,255,.10), rgba(111,141,255,.04)); border: 1px solid rgba(177,140,255,.32); }
+.pb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 9px; }
+.pb-ic { width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center; background: var(--mgr-grad); color: #1b1040; flex: none; }
+.pb-ic .i { width: 14px; height: 14px; }
+.pb-title { font-size: 14px; font-weight: 700; color: var(--mgr-ink); }
+.pb-sub { font-size: 11.5px; color: var(--muted); }
+.pb-to { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.pb-who { --c: var(--mgr); display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px 3px 4px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border: 1.5px solid var(--line); transition: border-color .12s, background .12s; }
+.pb-who:hover { border-color: color-mix(in srgb, var(--c) 60%, transparent); }
+.pb-who.on { color: var(--ink); border-color: var(--c); background: color-mix(in srgb, var(--c) 20%, var(--bg-2)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 16%, transparent); }
+.pb-who i { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--muted); }
+.avatar.xs { width: 20px; height: 20px; font-size: 9.5px; box-shadow: none; }
+.push-box .nb-row textarea:focus { border-color: var(--mgr); box-shadow: 0 0 0 3px rgba(177,140,255,.16); }
+.push-btn { background: var(--mgr-grad); color: #1b1040; font-weight: 700; box-shadow: 0 4px 14px rgba(140,130,255,.3); white-space: nowrap; }
+.push-btn:disabled { opacity: .45; cursor: default; filter: none; }
+.push-btn .i { width: 14px; height: 14px; }
+.pb-note { font-size: 11.5px; color: var(--mgr-ink); opacity: .8; margin-top: 6px; }
+
+/* ============================================================
+   סיווג קטגוריות – כפתור אחד שפותח/סוגר
+   ============================================================ */
+.d-cats { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.cats-btn { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  color: var(--ink-2); background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px 5px 10px; transition: border-color .12s, color .12s; }
+.cats-btn:hover { color: var(--ink); border-color: #4a4180; }
+.cats-btn .i { width: 15px; height: 15px; color: var(--muted); }
+.cats-btn .chev { width: 14px; height: 14px; transition: transform .2s; }
+.d-cats.open .cats-btn { color: var(--ink); border-color: #4a4180; }
+.d-cats.open .cats-btn .chev { transform: rotate(180deg); }
+.cats-sel { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.cat-dot { --c: var(--ink-2); display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: color-mix(in srgb, var(--c) 50%, white); }
+.cat-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
+.cat-dot + .cat-dot { margin-inline-start: 6px; }
+.d-cats.open .cats-sel { display: none; }
+.cats-all { flex-basis: 100%; display: none; flex-wrap: wrap; gap: 6px; padding: 10px; border-radius: 13px; background: var(--bg-2); border: 1px solid var(--line); }
+.d-cats.open .cats-all { display: flex; animation: cats-in .18s ease-out; }
+@keyframes cats-in { from { opacity: 0; transform: translateY(-4px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .inq.pushed, .inq.pushed::before, .note.push.pinned, .note.push.pinned::after { animation: none; }
+}
