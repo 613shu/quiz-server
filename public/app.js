@@ -47,7 +47,9 @@ function viewTabs() {
   // "הכל" – כל הפניות שמותר לי לראות, בכל הסטטוסים. החיפוש עובר אליה אוטומטית.
   if (!isMgr()) return [['all', 'הכל', c.all], ['open', 'פניות כלליות', c.general], ['mine', 'הפניות שלי', c.mine, c.mineReturned]];
   return [['all', 'הכל', c.all], ['open', 'כל הפתוחות', c.open], ['mine', 'הפניות שלי', c.mine, c.mineReturned], ['escalated', 'הועבר למנהל', c.escalatedOpen],
-    ['overdue', 'ממתינות זמן רב', c.overdue], ['handled', 'טופלו – הושלם', c.handled], ['tracking', 'טופלו – במעקב', c.tracking], ['ignored', 'הוסתרו', c.ignored]];
+    ['overdue', 'ממתינות זמן רב', c.overdue],
+    // מופיע רק כשיש מיילים שלא הגיעו ליעד (או כשהתצוגה פתוחה)
+    ...(c.bounced || S.view === 'bounced' ? [['bounced', 'לא הגיעו ליעד', c.bounced]] : []), ['handled', 'טופלו – הושלם', c.handled], ['tracking', 'טופלו – במעקב', c.tracking], ['ignored', 'הוסתרו', c.ignored]];
 }
 const SUBS = [['open', 'לטיפול'], ['returned', 'חוזרות'], ['overdue', 'ממתינות'], ['done', 'הושלמו'], ['tracking', 'במעקב']];
 const RANGES = [['', 'הכל'], ['0', 'היום'], ['6', '7 ימים'], ['29', '30 ימים']];
@@ -289,7 +291,8 @@ function renderMemberSide() {
     <div class="side-sub">טיפלה בפניות</div>` +
     WRANGES.map(([k, l, c]) => `<button class="tab ${isWorked() && w.preset === k ? 'active' : ''}" data-wr="${k}">${l}<span class="cnt">${wc[c] || 0}</span></button>`).join('') + custom +
     `<div class="side-sub">אצלה כרגע</div>` +
-    NOW_SUBS.map(([k, l]) => `<button class="tab ${S.sub === k ? 'active' : ''} ${k === 'overdue' && sc.overdue ? 'warn-tab' : ''}" data-msub="${k}">${l}<span class="cnt">${sc[k] || 0}</span></button>`).join('');
+    (sc.bounced || S.sub === 'bounced' ? [...NOW_SUBS.slice(0, 3), ['bounced', 'לא הגיעו ליעד'], ...NOW_SUBS.slice(3)] : NOW_SUBS)
+      .map(([k, l]) => `<button class="tab ${S.sub === k ? 'active' : ''} ${(k === 'overdue' && sc.overdue) || (k === 'bounced' && sc.bounced) ? 'warn-tab' : ''}" data-msub="${k}">${l}<span class="cnt">${sc[k] || 0}</span></button>`).join('');
 }
 
 function renderTabs() {
@@ -348,7 +351,8 @@ function renderListHead() {
   const sc = S.subCounts || {};
   let html = '';
   if (S.view === 'member') html += `<div class="lh-who">${avatar(teamName(S.member), teamColor(S.member), 'sm team')}<b>הפניות של ${esc(teamName(S.member))}</b><button class="btn ghost sm" data-screen="stats">חזרה לניהול מענה</button></div>`;
-  if (personal) html += `<div class="seg">${SUBS.map(([k, l]) => `<button class="seg-b ${S.sub === k ? 'on' : ''} ${k === 'returned' && sc.returned ? 'warm' : ''} ${k === 'overdue' && sc.overdue ? 'alert' : ''}" data-sub="${k}">${l}<span>${sc[k] || 0}</span></button>`).join('')}</div>`;
+  const subs = sc.bounced || S.sub === 'bounced' ? [...SUBS.slice(0, 3), ['bounced', 'לא הגיעו'], ...SUBS.slice(3)] : SUBS;
+  if (personal) html += `<div class="seg">${subs.map(([k, l]) => `<button class="seg-b ${S.sub === k ? 'on' : ''} ${k === 'returned' && sc.returned ? 'warm' : ''} ${(k === 'overdue' && sc.overdue) || (k === 'bounced' && sc.bounced) ? 'alert' : ''}" data-sub="${k}">${l}<span>${sc[k] || 0}</span></button>`).join('')}</div>`;
   if (ranged) html += `<div class="seg small">${RANGES.map(([k, l]) => `<button class="seg-b ${S.range === k ? 'on' : ''}" data-range="${k}">${l}</button>`).join('')}</div>`;
   el.innerHTML = html;
 }
@@ -358,8 +362,8 @@ function renderNotice() {
   const c = S.counts, el = $('#notice');
   const parts = [];
   if (c.pushed) parts.push(`<button class="nt push" data-view="mine" data-sub="open"><span class="nt-ic">${ic('bell')}</span><span>${c.pushed === 1 ? 'יש לך <b>הודעה אחת</b> מהמנהל' : `יש לך <b>${c.pushed}</b> הודעות מהמנהל`} – בראש הפניות הפתוחות</span><span class="nt-go">לצפייה ←</span></button>`);
-  if (c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('bounce')}</span><span>${c.mineBounced === 1 ? '<b>מייל אחד</b> ששלחת לא הגיע ליעד' : `<b>${c.mineBounced}</b> מיילים ששלחת לא הגיעו ליעד`} – צריך לבדוק ולשלוח שוב</span><span class="nt-go">לצפייה ←</span></button>`);
-  if (isMgr() && c.bounced > c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="open" data-sub=""><span class="nt-ic">${ic('bounce')}</span><span>בצוות: <b>${c.bounced}</b> ${c.bounced === 1 ? 'פניה שבה המייל האחרון' : 'פניות שבהן המייל האחרון'} לא הגיע ליעד</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="mine" data-sub="bounced"><span class="nt-ic">${ic('bounce')}</span><span>${c.mineBounced === 1 ? '<b>מייל אחד</b> ששלחת לא הגיע ליעד' : `<b>${c.mineBounced}</b> מיילים ששלחת לא הגיעו ליעד`} – צריך לבדוק ולשלוח שוב</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (isMgr() && c.bounced > c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="bounced"><span class="nt-ic">${ic('bounce')}</span><span>בצוות: <b>${c.bounced}</b> ${c.bounced === 1 ? 'פניה שבה המייל האחרון' : 'פניות שבהן המייל האחרון'} לא הגיע ליעד</span><span class="nt-go">לצפייה ←</span></button>`);
   const ret = (c.mineReturned || 0) - (c.mineBounced || 0);   // מיילים שחזרו כבר מופיעים בהודעה משלהם
   if (ret > 0) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('ret')}</span><span>יש לך <b>${ret}</b> ${ret === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
   if (c.mineOverdue) parts.push(`<button class="nt alert" data-view="mine" data-sub="overdue"><span class="nt-ic">${ic('clock')}</span><span><b>${c.mineOverdue}</b> מהפניות שלך ממתינות למענה יותר מ-${S.cfg.overdueHours} שעות</span><span class="nt-go">לצפייה ←</span></button>`);
@@ -386,6 +390,7 @@ function renderList() {
       : doneOn() ? 'אין עדיין פניות שטופלו'
       : S.view === 'open' ? 'אין פניות פתוחות – כל הכבוד!'
       : S.view === 'tracking' || S.sub === 'tracking' ? 'אין פניות במעקב כרגע'
+      : S.view === 'bounced' || S.sub === 'bounced' ? 'אין מיילים שלא הגיעו ליעד'
       : isWorked() ? `${teamName(S.member)} לא טיפלה בפניות ${wrLabel()}`
       : (S.view === 'mine' || S.view === 'member') && S.sub !== 'done' ? (S.sub === 'open' ? 'אין פניות שממתינות לטיפול' : 'אין כאן כלום כרגע')
       : 'לא נמצאו פניות';

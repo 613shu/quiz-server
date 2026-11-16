@@ -497,7 +497,7 @@ class Engine {
   // done=1 ("טופלו" בסרגל הקטגוריות): כל הפניות שטופלו – בפניות הכלליות של כל הצוות, ב"הפניות שלי" רק שלי
   list({ view = 'open', sub = 'open', member, category, q, from, to, done }, user) {
     const mgr = this.isManager(user);
-    if (['handled', 'tracking', 'escalated', 'ignored', 'overdue', 'member'].includes(view) && !mgr) throw new AppError(403, 'רק למנהל');
+    if (['handled', 'tracking', 'escalated', 'ignored', 'overdue', 'bounced', 'member'].includes(view) && !mgr) throw new AppError(403, 'רק למנהל');
     const who = view === 'member' ? member : user.key;
     const all = [...this.threads().values()];
     // מנהל → מזכירה: הפניות שטיפלה בהן (ענתה / סימנה כטופל) בטווח – בדיוק אותה ספירה כמו בטבלת ניהול מענה
@@ -509,6 +509,8 @@ class Engine {
       open: t => (t.status === 'in_progress' && personal(t)) || pushed(t),
       returned: t => t.status === 'in_progress' && personal(t) && (t.returned || t.assigned || !!t.bounced),
       overdue: t => t.status === 'in_progress' && personal(t) && this.summary(t).overdue,
+      // מיילים שלא הגיעו ליעד ועוד לא סומן עליהם "ראיתי" (אותה ספירה כמו בהודעה בראש המסך)
+      bounced: t => t.status === 'in_progress' && personal(t) && !!t.bounced && !t.bounced.seen,
       tracking: t => t.tracking && personal(t),
       done: t => t.status === 'handled' && !t.tracking && personal(t) && this.inRange(t.lastActivity, from, to),
     };
@@ -522,6 +524,7 @@ class Engine {
       escalated: t => t.status === 'escalated',
       ignored: t => t.status === 'ignored',
       overdue: t => this.summary(t).overdue,
+      bounced: t => !!t.bounced && !t.bounced.seen,
     }[view] || (t => t.status === 'new');
     const doneMode = done === '1' && (view === 'open' || view === 'mine');
     let items = doneMode
