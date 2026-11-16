@@ -139,3 +139,25 @@ test('מקסימום 3 סבבים, ותיקון ידני עוצר סיווג ח�
   assert.ok(!w.pending().some(x => x.id === other.id));
   global.fetch = save;
 });
+
+test('סיווג מחדש: מוחק רק תוויות AI, לא נוגע בתיקון ידני', async () => {
+  const save = global.fetch;
+  let reply = ['assign'];
+  global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ categories: reply }) }] } }] }) });
+  const p = new FakeProvider();
+  const e = new Engine(p, new Users());
+  const w = new AiWorker(e); w.kick = () => {};
+  await p.start();
+  await w.run();
+  const get = s => { e.cache = null; return [...e.threads().values()].find(x => x.subject.includes(s)); };
+  const manual = get('לא קיבלתי');
+  await p.modifyLabels(manual.uids, ['KOH/cat/receipt', 'KOH/cat-manual'], ['KOH/cat/assign']);
+  const r = await w.resetAi();
+  assert.strictEqual(r.threads, 2);
+  assert.deepStrictEqual(get('לא קיבלתי').categories, ['receipt']);
+  reply = ['inquiry'];
+  await w.run();
+  assert.deepStrictEqual(get('לא מופיעות').categories, ['inquiry']);
+  assert.deepStrictEqual(get('לא קיבלתי').categories, ['receipt']);
+  global.fetch = save;
+});

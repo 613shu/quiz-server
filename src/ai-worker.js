@@ -136,6 +136,27 @@ class AiWorker {
     });
   }
 
+  // סיווג מחדש של כל מה שה-AI סיווג (למשל אחרי שיפור ההסברים): מוחק את תוויות ה-AI
+  // מפניות שהצוות לא תיקן ידנית (בלי KOH/cat-manual), והעובד מסווג אותן שוב.
+  async resetAi() {
+    const uids = new Set(), labelSet = new Set([AI_LABEL, SEEN_LABEL]);
+    let threads = 0;
+    for (const t of this.e.threads().values()) {
+      const labels = labelsOf(t);
+      if (!labels.has(AI_LABEL) || labels.has(MANUAL_LABEL)) continue;
+      threads++;
+      t.uids.forEach(u => uids.add(u));
+      catsOf(labels).forEach(k => labelSet.add(`KOH/cat/${k}`));
+    }
+    const list = [...uids], remove = [...labelSet];
+    for (let i = 0; i < list.length; i += 200) await this.e.p.modifyLabels(list.slice(i, i + 200), [], remove);
+    for (const uid of list) { const m = this.e.p.messages.get(uid); if (m) remove.forEach(l => m.labels.delete(l)); }
+    this.failedAt.clear();
+    this.e.cache = null;
+    this.kick();
+    return { threads };
+  }
+
   // למסך המנהל: מצב + כמה נשארו
   status() {
     let left = 0;

@@ -96,6 +96,8 @@ app.get('/api/config', h(req => ({
 // סיווג AI – למנהל בלבד: מצב, והרצה יבשה (מה היה נשלח, בלי לשלוח)
 app.get('/api/ai/status', managerOnly, h(() => aiWorker.status()));
 app.get('/api/ai/preview', managerOnly, h(req => ({ items: aiWorker.preview(req.query.n) })));
+// סיווג מחדש של כל מה שה-AI סיווג (בלי פניות שהצוות תיקן ידנית)
+app.post('/api/ai/reclassify', managerOnly, h(() => aiWorker.resetAi()));
 
 app.get('/api/status', h(() => ({ ...provider.status, provider: provider.name, configured: provider.configured() })));
 
