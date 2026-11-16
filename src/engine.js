@@ -829,7 +829,7 @@ class Engine {
   // מענה ללקוח באותה שרשרת מייל
   // toAddress – רק אם המשתמש/ת שינה את הנמען; ריק = הפונה (שולח ההודעה האחרונה)
   // track = true → אחרי השליחה הפניה ב"טופלו – במעקב"; אחרת "טופלו – הושלם" (ברירת מחדל)
-  reply(id, user, body, files, toAddress, track = false, noQuote = false) {
+  reply(id, user, body, files, toAddress, track = false, withQuote = null) {
     return this.locked(id, async () => {
       const t = this.getEdit(id, user);
       if (!['in_progress', 'escalated'].includes(t.status) || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "אני מטפל/ת בזה"');
@@ -849,7 +849,8 @@ class Engine {
       const q = this.quoteOf(t);
       // פניה שהועברה מהצוות: הנושא בלי "FW:"/"RE:" המצטברים של ההתכתבות הפנימית
       const subject = q.forwarded ? 'Re: ' + baseSubject(li.subject) : /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
-      // הציטוט: בפניה רגילה – כמו תמיד; בפניה שהועברה – רק ההודעות של הלקוח; noQuote – בלי ציטוט בכלל
+      // הציטוט: בפניה רגילה – כמו תמיד (אלא אם ביקשו בלי); בפניה שהועברה – ברירת המחדל בלי ציטוט, ואפשר לצרף רק את הודעות הלקוח
+      const noQuote = withQuote === false || (withQuote !== true && q.forwarded);
       const blocks = noQuote ? [] : q.blocks;
       const qStyle = 'font-family:Arial,sans-serif;font-size:13px;color:#555;text-align:right';
       const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>${signature.html()}`

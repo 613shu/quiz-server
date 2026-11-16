@@ -76,7 +76,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 const S = {
   cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, catsOpen: false, sideCatsOpen: ls.get('koh.sideCats', false),
-  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, noQuote: {}, sending: null, sendErr: {}, sentOk: {},
+  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, quoteBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
 
@@ -691,15 +691,19 @@ function toNote(d) {
 }
 const validEmail = s => /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/.test(s);
 
+const quoteOn = d => !!d.quote && d.quote.mode !== 'none' && (S.quoteBy[d.id] ?? !d.quote.forwarded);
 // מה יצוטט בתחתית התשובה (בפניה שהועברה מהצוות – רק הודעת הפונה, בלי ההתכתבות הפנימית)
 function quoteHtml(d) {
   const q = d.quote; if (!q) return '';
   if (q.mode === 'none') return `<div class="c-quote none">${esc(q.label)}</div>`;
-  const off = !!S.noQuote[d.id];
+  const off = !quoteOn(d);
+  // פניה שהועברה מהצוות: ברירת המחדל בלי ציטוט, ואפשר לצרף את הודעת הפונה. פניה רגילה: עם ציטוט, ואפשר לבטל
   return `<div class="c-quote ${off ? 'off' : ''}" id="c-quote">
       <span class="q-lbl">${off ? 'התשובה תישלח בלי ציטוט' : `יצורף ציטוט: ${esc(q.label)}`}</span>
-      ${q.forwarded && !off ? '<span class="q-safe">ההתכתבות הפנימית לא תישלח ללקוח</span>' : ''}
-      <label class="q-off"><input type="checkbox" id="no-quote" ${off ? 'checked' : ''}> בלי ציטוט</label>
+      ${q.forwarded ? '<span class="q-safe">ההתכתבות הפנימית לא תישלח ללקוח</span>' : ''}
+      ${q.forwarded
+        ? `<label class="q-off"><input type="checkbox" id="add-quote" ${off ? '' : 'checked'}> צירוף ההודעה של הפונה</label>`
+        : `<label class="q-off"><input type="checkbox" id="no-quote" ${off ? 'checked' : ''}> בלי ציטוט</label>`}
       ${off ? '' : `<details class="q-prev"><summary>מה הלקוח יראה</summary><div class="q-body" dir="auto">${esc(q.preview)}</div></details>`}
     </div>`;
 }
@@ -836,7 +840,7 @@ async function sendReply(track = false) {
   if (total > MAX_TOTAL) return toast('הקבצים גדולים מדי יחד (מעל 24MB). הסירו חלק מהם ונסו שוב.', 'err');
   const fd = new FormData(); fd.append('body', body); if (other) fd.append('to', to);
   track = track && d.status !== 'escalated'; if (track) fd.append('track', '1');
-  if (S.noQuote[id]) fd.append('noQuote', '1');
+  if (d.quote && d.quote.mode !== 'none') fd.append('quote', quoteOn(d) ? '1' : '0');
   files.forEach(f => fd.append('files', f));
 
   S.sending = id; S.sendTrack = track; delete S.sendErr[id]; delete S.sentOk[id];
@@ -848,7 +852,7 @@ async function sendReply(track = false) {
       if (S.detail && S.detail.id === id) renderSendState();
     });
     S.sending = null; S.sendProgress = null;
-    delete S.drafts[id]; delete S.toBy[id]; delete S.noQuote[id]; S.filesBy[id] = []; S.sentOk[id] = to;
+    delete S.drafts[id]; delete S.toBy[id]; delete S.quoteBy[id]; S.filesBy[id] = []; S.sentOk[id] = to;
     toast(`התשובה נשלחה ל-${other ? to : d.fromName}` + (track ? ' · הפניה במעקב' : ''), 'ok');
     if (S.detail && S.detail.id === id) { S.detail = res; renderDetail(); }
     loadList().catch(() => {});
@@ -1177,8 +1181,8 @@ function bindApp() {
   });
   det.addEventListener('change', e => {
     if (e.target.id === 'file-input') { addFiles([...e.target.files]); e.target.value = ''; }
-    if (e.target.id === 'no-quote') {
-      if (e.target.checked) S.noQuote[S.detail.id] = true; else delete S.noQuote[S.detail.id];
+    if (e.target.id === 'no-quote' || e.target.id === 'add-quote') {
+      S.quoteBy[S.detail.id] = e.target.id === 'add-quote' ? e.target.checked : !e.target.checked;
       const el = $('#c-quote'); if (el) el.outerHTML = quoteHtml(S.detail);
     }
   });
