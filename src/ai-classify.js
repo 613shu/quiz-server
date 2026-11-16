@@ -55,7 +55,7 @@ function requestBody(text) {
     contents: [{ role: 'user', parts: [{ text }] }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 256,
+      maxOutputTokens: 1024,   // מרווח גם למודלים ש"חושבים" (טוקני חשיבה נספרים כאן)
       responseMimeType: 'application/json',
       responseSchema: {
         type: 'OBJECT',
