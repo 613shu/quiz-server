@@ -64,4 +64,15 @@ module.exports = {
   SESSION_SECRET: env.SESSION_SECRET || '',
   CATEGORIES,
   SYNC_INTERVAL_MS: +(env.SYNC_INTERVAL_MS || 60000),
+
+  // סיווג AI (Gemini). כבוי כברירת מחדל – נדלק רק עם AI_ENABLED=1 ומפתח.
+  AI_ENABLED: env.AI_ENABLED === '1',                      // מתג כיבוי
+  AI_BACKEND: (env.AI_BACKEND || 'vertex').toLowerCase(),  // vertex (Google Cloud, אזור באירופה) | studio (Google AI Studio)
+  AI_API_KEY: env.AI_API_KEY || '',
+  AI_MODEL: env.AI_MODEL || '',                            // מזהה המודל כפי שמופיע ב-Vertex (למשל משפחת Flash-Lite)
+  AI_PROJECT: env.AI_PROJECT || '',                        // Project ID ב-Google Cloud (רק ל-vertex)
+  AI_REGION: env.AI_REGION || 'europe-west4',
+  AI_TIMEOUT_MS: +(env.AI_TIMEOUT_MS || 8000),
+  // רק פניות שנפתחו מהתאריך הזה מסווגות ב-AI (בלי סיווג רטרואקטיבי של כל ההיסטוריה)
+  AI_SINCE: env.AI_SINCE || '',
 };
