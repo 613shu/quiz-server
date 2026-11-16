@@ -184,6 +184,50 @@ class Engine {
     return orphans;
   }
 
+  // כתובת של הצוות (הדשבורד, help@, מעבירים, הדומיינים של הקרן)
+  isTeam(a) {
+    a = String(a || '').toLowerCase();
+    return !!a && (a === this.me || config.FORWARDERS.includes(a) || config.IMPORT_SENDERS.includes(a)
+      || config.ACCEPT_TO.includes(a) || config.TEAM_DOMAINS.some(d => a.endsWith('@' + d)));
+  }
+
+  // הודעה נכנסת מכתובת של הצוות (למשל המנהלת שמעבירה לדשבורד שרשור שהתכתבה עליו עם הצוות):
+  // מפרקים את השרשור ומוצאים את הלקוח – ההודעה החדשה ביותר בשרשור מכתובת שאינה של הצוות.
+  // מחזיר null אם ההודעה לא מהצוות; אחרת { customer, parts } (parts = הודעות הלקוח הרצופות, מהחדשה לישנה; customer=null אם לא נמצא)
+  forwardOf(m) {
+    if (m._fw !== undefined) return m._fw;
+    m._fw = null;
+    if (this.isOut(m) || m.outbound || !this.isTeam(m.from.address)) return null;
+    const { parts } = splitHistory(m.fullText || [m.body, m.quoted].filter(Boolean).join('\n\n'));
+    const i = parts.findIndex(p => p.address && !this.isTeam(p.address) && p.body);
+    if (i < 0) return (m._fw = { customer: null, parts: [] });
+    const addr = parts[i].address;
+    const run = [];
+    for (let k = i; k < parts.length && parts[k].address === addr; k++) if (parts[k].body) run.push(parts[k]);
+    return (m._fw = { customer: { name: parts[i].name || addr, address: addr }, parts: run });
+  }
+
+  // מה יצוטט בתשובה ללקוח. בפניה שהועברה מהצוות – רק ההודעות של הלקוח (בלי ההתכתבות הפנימית)
+  quoteOf(t) {
+    const li = t.lastIn;
+    if (!li) return { mode: 'none', label: '', blocks: [] };
+    const fw = this.forwardOf(li);
+    if (fw) {
+      if (!fw.parts.length) return { mode: 'none', forwarded: true, label: 'לא זוהתה בשרשור הודעה של הפונה – התשובה תישלח בלי ציטוט', blocks: [] };
+      const p = fw.parts[0], who = p.name || p.address;
+      return {
+        mode: 'customer', forwarded: true,
+        label: (fw.parts.length > 1 ? `${fw.parts.length} ההודעות האחרונות של ${who}` : `ההודעה של ${who}`) + (p.date ? ` מ-${fmtDate(p.date)}` : ''),
+        blocks: fw.parts.map(x => ({ head: (x.date ? `בתאריך ${fmtDate(x.date)}, ` : '') + `${x.name || x.address} כתב/ה:`, text: x.body })),
+      };
+    }
+    return {
+      mode: 'full', forwarded: false,
+      label: `ההודעה של ${li.from.name || li.from.address} מ-${fmtDate(li.date)}` + (li.quoted ? ' (כולל ההתכתבות שמצוטטת בה)' : ''),
+      blocks: [{ head: `בתאריך ${fmtDate(li.date)}, ${li.from.name || li.from.address} כתב/ה:`, text: li.body + (li.quoted ? '\n\n' + li.quoted : ''), plain: li.body }],
+    };
+  }
+
   // מי הצד השני בשיחה (לאיחוד לפי נושא): בהודעה נכנסת – השולח, ביוצאת – הנמען
   partyOf(m) {
     const skip = a => !a || a === this.me || config.ACCEPT_TO.includes(a) || config.FORWARDERS.includes(a);
@@ -255,9 +299,11 @@ class Engine {
 
     // פונה: אם הגיע Fwd ידני מכתובת מעבירה – ננסה לחלץ את השולח המקורי
     const senderOf = m => {
+      const fw = this.forwardOf(m);
+      if (fw && fw.customer) return fw.customer;
       if (config.FORWARDERS.includes(m.from.address) && m.fullText) {
         const orig = extractForwardedSender(m.fullText);
-        if (orig && orig.address !== m.from.address) return orig;
+        if (orig && orig.address !== m.from.address && !this.isTeam(orig.address)) return orig;
       }
       return m.replyTo && m.replyTo.address && !config.FORWARDERS.includes(m.replyTo.address)
         ? { name: m.from.name || m.replyTo.name, address: m.replyTo.address } : m.from;
@@ -344,10 +390,13 @@ class Engine {
       categories = [...categories.filter(k => k !== 'general'), 'english'];
     }
 
+    // הודעה שחבר/ת צוות העבירו לדשבורד (לא דרך help@) – הבועה מציגה את מי שהעביר/ה, לא את הלקוח
+    const teamFwd = m => !!this.forwardOf(m) && !config.FORWARDERS.includes(m.from.address);
     const view = m => ({
       id: m.uid, direction: this.isOut(m) ? 'out' : 'in',
-      name: this.isOut(m) ? config.FROM_NAME : senderOf(m).name || senderOf(m).address,
-      email: this.isOut(m) ? null : senderOf(m).address,
+      name: this.isOut(m) ? config.FROM_NAME : teamFwd(m) ? (m.from.name || m.from.address) : senderOf(m).name || senderOf(m).address,
+      email: this.isOut(m) ? null : teamFwd(m) ? m.from.address : senderOf(m).address,
+      forwarded: teamFwd(m) || undefined,
       author: this.isOut(m) ? (m.author ? this.userName(m.author) : null) : null,
       authorKey: this.isOut(m) ? m.author || null : null,
       to: this.isOut(m) ? ((m.to || []).filter(a => a !== this.me).join(', ') || null) : null,
@@ -388,8 +437,7 @@ class Engine {
 
   // פירוק הציטוטים להודעות נפרדות, בלי כפילויות מול ההודעות האמיתיות (לפי כיוון + זמן, או תוכן זהה)
   reconstruct(msgs, shown, customer) {
-    const own = a => !!a && (a === this.me || config.FORWARDERS.includes(a) || config.IMPORT_SENDERS.includes(a)
-      || config.ACCEPT_TO.includes(a) || config.TEAM_DOMAINS.some(d => a.endsWith('@' + d)));
+    const own = a => this.isTeam(a);
     const ownName = n => !!n && (n === config.FROM_NAME || /koh|help|עולם התורה/i.test(n));
     const known = shown.map(v => ({ dir: v.direction, t: Date.parse(v.date), key: bodyKey(v.body) }));
     const same = (a, b) => a.dir === b.dir && (
@@ -470,6 +518,10 @@ class Engine {
       ...this.summaryFor(t, user),
       messages: t.messages,
       replyTo: t.replyTarget.address,
+      replyToTeam: this.isTeam(t.replyTarget.address),
+      quote: (({ mode, forwarded, label, blocks }) => ({
+        mode, forwarded, label, preview: blocks.map(b => b.head + '\n' + b.text).join('\n\n').slice(0, 4000),
+      }))(this.quoteOf(t)),
       trackDefault: t.trackDefault,
       readOnly: !this.canEdit(t, user),
       events: [...this.oldLog, ...this.log].filter(e => t.ids.includes(e.t)).map(e => ({ at: e.at, user: e.user ? this.userName(e.user) : null, userKey: e.user, action: e.action, text: e.text })),
@@ -777,7 +829,7 @@ class Engine {
   // מענה ללקוח באותה שרשרת מייל
   // toAddress – רק אם המשתמש/ת שינה את הנמען; ריק = הפונה (שולח ההודעה האחרונה)
   // track = true → אחרי השליחה הפניה ב"טופלו – במעקב"; אחרת "טופלו – הושלם" (ברירת מחדל)
-  reply(id, user, body, files, toAddress, track = false) {
+  reply(id, user, body, files, toAddress, track = false, noQuote = false) {
     return this.locked(id, async () => {
       const t = this.getEdit(id, user);
       if (!['in_progress', 'escalated'].includes(t.status) || t.assignee !== user.key) throw new AppError(403, 'כדי לענות צריך קודם ללחוץ "אני מטפל/ת בזה"');
@@ -794,12 +846,17 @@ class Engine {
         : list.map(a => (a.toLowerCase() === def ? { name: t.replyTarget.name || '', address: t.replyTarget.address } : { name: '', address: a }));
       const toText = to.map(x => x.address).join(', ');
       const li = t.lastIn;
-      const subject = /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
-      const quoteHead = `בתאריך ${fmtDate(li.date)}, ${li.from.name || li.from.address} כתב/ה:`;
-      const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>${signature.html()}
-<br><div dir="rtl" style="font-family:Arial,sans-serif;font-size:13px;color:#555;text-align:right">${esc(quoteHead)}</div>
-<blockquote dir="rtl" style="margin:0 8px 0 0;padding:0 10px 0 0;border-right:2px solid #ccc;color:#555;font-family:Arial,sans-serif;font-size:13px;text-align:right">${esc(li.body + (li.quoted ? '\n\n' + li.quoted : '')).replace(/\n/g, '<br>')}</blockquote>`;
-      const text = `${body}\n\n${quoteHead}\n${(li.body || '').split('\n').map(l => '> ' + l).join('\n')}`;
+      const q = this.quoteOf(t);
+      // פניה שהועברה מהצוות: הנושא בלי "FW:"/"RE:" המצטברים של ההתכתבות הפנימית
+      const subject = q.forwarded ? 'Re: ' + baseSubject(li.subject) : /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
+      // הציטוט: בפניה רגילה – כמו תמיד; בפניה שהועברה – רק ההודעות של הלקוח; noQuote – בלי ציטוט בכלל
+      const blocks = noQuote ? [] : q.blocks;
+      const qStyle = 'font-family:Arial,sans-serif;font-size:13px;color:#555;text-align:right';
+      const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>${signature.html()}`
+        + blocks.map(b => `
+<br><div dir="rtl" style="${qStyle}">${esc(b.head)}</div>
+<blockquote dir="rtl" style="margin:0 8px 0 0;padding:0 10px 0 0;border-right:2px solid #ccc;${qStyle}">${esc(b.text).replace(/\n/g, '<br>')}</blockquote>`).join('');
+      const text = body + blocks.map(b => `\n\n${b.head}\n${(b.plain ?? b.text ?? '').split('\n').map(l => '> ' + l).join('\n')}`).join('');
       const references = [...(li.references || []), li.messageId].filter(Boolean);
 
       const messageId = await this.p.send({
@@ -823,7 +880,7 @@ class Engine {
       const tr = track && t.status !== 'escalated';
       await this.p.modifyLabels(t.uids, tr ? [L.track] : [], [L.reopen, L.followup, L.assigned, ...(tr ? [] : [L.track])]).catch(e => console.error('[reply] labels', e.message));
       this.ackPushes(t, user);
-      this.addLog(id, user, 'reply', (same ? `השיב/ה ל-${toText}` : `השיב/ה ל-${toText} (נמענים שונים מברירת המחדל – הפונה ${t.replyTarget.address})`) + (tr ? ' · טופלו – במעקב' : ''));
+      this.addLog(id, user, 'reply', (same ? `השיב/ה ל-${toText}` : `השיב/ה ל-${toText} (נמענים שונים מברירת המחדל – הפונה ${t.replyTarget.address})`) + (noQuote ? ' · בלי ציטוט' : q.forwarded && blocks.length ? ' · ציטוט: רק הודעת הפונה' : '') + (tr ? ' · טופלו – במעקב' : ''));
       return this.refresh(id, user);
     });
   }

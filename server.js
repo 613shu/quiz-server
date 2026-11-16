@@ -192,7 +192,7 @@ app.post('/api/inquiries/:id/reply', uploadFiles, h(req => {
   const files = (req.files || []).map(f => ({
     name: Buffer.from(f.originalname, 'latin1').toString('utf8'), type: f.mimetype, size: f.size, buffer: f.buffer,
   }));
-  return engine.reply(req.params.id, req.user, body, files, req.body.to, req.body.track === '1');
+  return engine.reply(req.params.id, req.user, body, files, req.body.to, req.body.track === '1', req.body.noQuote === '1');
 }));
 
 // מייל חדש לתורם (יזום מהדשבורד)

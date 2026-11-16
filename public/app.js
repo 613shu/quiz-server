@@ -76,7 +76,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 const S = {
   cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, catsOpen: false, sideCatsOpen: ls.get('koh.sideCats', false),
-  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, sending: null, sendErr: {}, sentOk: {},
+  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, noQuote: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
 
@@ -447,7 +447,7 @@ function bubble(m, first) {
   const out = m.direction === 'out';
   const color = out ? (m.authorKey ? teamColor(m.authorKey) : '#3b6cf6') : custColor(S.detail.fromEmail);
   const who = out ? (m.author ? `${m.author} · צוות KOH` : 'צוות KOH') : (m.name || m.email || 'הפונה');
-  const tag = out ? 'תשובת הצוות' : (m.reconstructed && m.email && m.email !== S.detail.fromEmail ? 'צד נוסף' : 'הפונה');
+  const tag = out ? 'תשובת הצוות' : m.forwarded ? 'הועבר מהצוות' : (m.reconstructed && m.email && m.email !== S.detail.fromEmail ? 'צד נוסף' : 'הפונה');
   // ההיסטוריה המצוטטת מוצגת רק בהודעה הראשונה – בשאר היא כבר מופיעה בשרשור עצמו
   const showQuoted = m.quoted && first;
   return `
@@ -691,6 +691,19 @@ function toNote(d) {
 }
 const validEmail = s => /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/.test(s);
 
+// מה יצוטט בתחתית התשובה (בפניה שהועברה מהצוות – רק הודעת הפונה, בלי ההתכתבות הפנימית)
+function quoteHtml(d) {
+  const q = d.quote; if (!q) return '';
+  if (q.mode === 'none') return `<div class="c-quote none">${esc(q.label)}</div>`;
+  const off = !!S.noQuote[d.id];
+  return `<div class="c-quote ${off ? 'off' : ''}" id="c-quote">
+      <span class="q-lbl">${off ? 'התשובה תישלח בלי ציטוט' : `יצורף ציטוט: ${esc(q.label)}`}</span>
+      ${q.forwarded && !off ? '<span class="q-safe">ההתכתבות הפנימית לא תישלח ללקוח</span>' : ''}
+      <label class="q-off"><input type="checkbox" id="no-quote" ${off ? 'checked' : ''}> בלי ציטוט</label>
+      ${off ? '' : `<details class="q-prev"><summary>מה הלקוח יראה</summary><div class="q-body" dir="auto">${esc(q.preview)}</div></details>`}
+    </div>`;
+}
+
 function composerHtml(d) {
   const blocked = S.status.send && S.status.send.ok === false;
   return `
@@ -702,6 +715,8 @@ function composerHtml(d) {
         <span>· תישלח במייל באותה שרשרת · לכמה נמענים: הפרידו בפסיק</span>
       </div>
       <div class="c-to-note" id="reply-to-note" ${toChanged(d) ? '' : 'hidden'}>${esc(toNote(d))}</div>
+      ${d.replyToTeam && !toChanged(d) ? `<div class="c-warn" id="reply-to-team">שימו לב: הכתובת ${esc(defTo(d))} שייכת לצוות, ולא זוהה בשרשור מי הפונה. אם התשובה מיועדת ללקוח – כתבו את הכתובת שלו בשדה "תשובה אל".</div>` : ''}
+      ${quoteHtml(d)}
       ${blocked ? `<div class="c-warn">שליחת מיילים לא זמינה כרגע בשרת, ולכן התשובה כנראה לא תישלח. אפשר לכתוב – הטיוטה נשמרת.</div>` : ''}
       <div class="c-box" id="c-box">
         <textarea id="reply-body" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
@@ -821,6 +836,7 @@ async function sendReply(track = false) {
   if (total > MAX_TOTAL) return toast('הקבצים גדולים מדי יחד (מעל 24MB). הסירו חלק מהם ונסו שוב.', 'err');
   const fd = new FormData(); fd.append('body', body); if (other) fd.append('to', to);
   track = track && d.status !== 'escalated'; if (track) fd.append('track', '1');
+  if (S.noQuote[id]) fd.append('noQuote', '1');
   files.forEach(f => fd.append('files', f));
 
   S.sending = id; S.sendTrack = track; delete S.sendErr[id]; delete S.sentOk[id];
@@ -832,7 +848,7 @@ async function sendReply(track = false) {
       if (S.detail && S.detail.id === id) renderSendState();
     });
     S.sending = null; S.sendProgress = null;
-    delete S.drafts[id]; delete S.toBy[id]; S.filesBy[id] = []; S.sentOk[id] = to;
+    delete S.drafts[id]; delete S.toBy[id]; delete S.noQuote[id]; S.filesBy[id] = []; S.sentOk[id] = to;
     toast(`התשובה נשלחה ל-${other ? to : d.fromName}` + (track ? ' · הפניה במעקב' : ''), 'ok');
     if (S.detail && S.detail.id === id) { S.detail = res; renderDetail(); }
     loadList().catch(() => {});
@@ -1159,7 +1175,13 @@ function bindApp() {
       catch (err) { toast(err.message, 'err'); }
     }
   });
-  det.addEventListener('change', e => { if (e.target.id === 'file-input') { addFiles([...e.target.files]); e.target.value = ''; } });
+  det.addEventListener('change', e => {
+    if (e.target.id === 'file-input') { addFiles([...e.target.files]); e.target.value = ''; }
+    if (e.target.id === 'no-quote') {
+      if (e.target.checked) S.noQuote[S.detail.id] = true; else delete S.noQuote[S.detail.id];
+      const el = $('#c-quote'); if (el) el.outerHTML = quoteHtml(S.detail);
+    }
+  });
   // גרירת קבצים והדבקת תמונות
   let dragN = 0;
   det.addEventListener('dragenter', e => { if (!$('#c-box') || !e.dataTransfer?.types.includes('Files')) return; e.preventDefault(); dragN++; $('#c-box').classList.add('drag'); });
