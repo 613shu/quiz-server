@@ -144,11 +144,32 @@ function cleanSubject(s) {
   return t;
 }
 
+// כמה הודעות לקוח באותה פניה: הראשונה (בדרך כלל מסבירה את הבעיה) עד FIRST_SHARE תווים,
+// והשאר מהאחרונה אחורה עד שנגמר התקציב. כל הודעה מותממת בנפרד (כולל חיתוך שורת הסיום שלה).
+const FIRST_SHARE = 700;
+const SEP = '\n---\n';
+function joinBodies(bodies, names) {
+  const parts = bodies.map(b => redactText(b, { names, max: MAX_BODY })).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || '';
+  const all = parts.join(SEP);
+  if (all.length <= MAX_BODY) return all;
+  const first = parts[0].length > FIRST_SHARE ? parts[0].slice(0, FIRST_SHARE) + '…' : parts[0];
+  let budget = MAX_BODY - first.length - SEP.length;
+  const tail = [];
+  for (let i = parts.length - 1; i >= 1 && budget > 40; i--) {
+    const p = parts[i].length > budget ? parts[i].slice(0, budget) + '…' : parts[i];
+    tail.unshift(p);
+    budget -= p.length + SEP.length;
+  }
+  return [first, ...tail].join(SEP);
+}
+
 // הפונקציה הראשית: מחזירה את הטקסט היחיד שמותר לשלוח ל-AI
+// body – הודעה אחת; bodies – כל הודעות הלקוח בפניה לפי הסדר (בלי תשובות צוות)
 // names – שמות שידועים לנו מהכותרות (שם השולח), כדי להסיר אותם גם מתוך הגוף
-function redact({ subject = '', body = '', names = [] } = {}) {
+function redact({ subject = '', body = '', bodies = null, names = [] } = {}) {
   const s = redactText(cleanSubject(subject), { names, max: MAX_SUBJECT, closing: false });
-  const b = redactText(body, { names, max: MAX_BODY });
+  const b = Array.isArray(bodies) ? joinBodies(bodies, names) : redactText(body, { names, max: MAX_BODY });
   return { subject: s, body: b, text: `נושא: ${s || '(ללא)'}\n\nתוכן:\n${b || '(ריק)'}` };
 }
 

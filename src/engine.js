@@ -14,7 +14,7 @@ const L = {
   // "ראיתי" על מייל שחזר – מוריד את ההודעה מראש המסך; הפניה נשארת בטיפול עד שליחה חוזרת / "טופל"
   bounceSeen: 'KOH/bounce-seen',
   // סווג ע"י AI (ראו ai-worker.js)
-  ai: 'KOH/ai',
+  ai: 'KOH/ai', catManual: 'KOH/cat-manual',
   // KOH/by/<key> = מי שהפניה שלו. נשאר גם אחרי המענה – כדי שתגובה חוזרת של הלקוח תגיע לאותו חבר צוות.
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
 };
@@ -763,7 +763,8 @@ class Engine {
       if (!cats.length) cats = ['general'];
       const all = config.CATEGORIES.map(c => L.cat(c.key));
       await this.p.modifyLabels(t.uids, [], all.filter(l => !cats.map(L.cat).includes(l)));
-      await this.p.modifyLabels(t.uids, cats.map(L.cat), []);
+      // KOH/cat-manual: הצוות קבע – סיווג ה-AI לא נוגע יותר בפניה (גם לא בסיווג חוזר)
+      await this.p.modifyLabels(t.uids, [...cats.map(L.cat), L.catManual], []);
       // הורדה ידנית של "אנגלית" נזכרת, כדי שהזיהוי האוטומטי לא יחזיר אותה
       if (cats.includes('english')) await this.p.modifyLabels(t.uids, [], [L.notEnglish]);
       else if (t.categories.includes('english')) await this.p.modifyLabels(t.uids, [L.notEnglish], []);
