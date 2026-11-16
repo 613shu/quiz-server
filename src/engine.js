@@ -6,6 +6,7 @@ const { extractForwardedSender, attachmentList } = require('./mail/parse');
 const attcache = require('./attcache');
 const { splitHistory, bodyKey } = require('./mail/history');
 const signature = require('./mail/signature');
+const bounceInfo = require('./mail/bounce');
 
 const L = {
   done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', track: 'KOH/track', notEnglish: 'KOH/not-english',
@@ -107,11 +108,18 @@ class Engine {
   // זה חשוב במיוחד להודעות מיובאות – Gmail לא תמיד משייך אותן לשרשור הקיים.
   threads() {
     if (this.cache) return this.cache;
-    const msgs = [...this.p.messages.values()].filter(m => !m.system && !m.labels.has('\\Draft'));
+    const all = [...this.p.messages.values()].filter(m => !m.system && !m.labels.has('\\Draft'));
+    // מיילים חוזרים (אי-מסירה) לא משתתפים באיחוד השרשורים – הם משויכים למייל המקורי שחזר.
+    // (בעבר כולם התאחדו לשרשור אחד ארוך לפי "אותו שולח + אותו נושא", או נכנסו לפניה כאילו הלקוח ענה.)
+    const msgs = all.filter(m => !m.bounce);
+    const groups = this.mergeGroups(msgs);
+    const orphans = this.matchBounces(all.filter(m => m.bounce), groups);
+    // מייל חוזר שלא נמצא למה הוא שייך – פניה נפרדת משלו (לא מתאחד עם מיילים חוזרים אחרים)
+    for (const b of orphans) groups.push({ id: `b${b.uid}`, ids: [`b${b.uid}`], msgs: [b] });
     const out = [];
     this.alias = new Map();
-    for (const g of this.mergeGroups(msgs)) {
-      const t = this.buildThread(g.id, g.msgs, g.ids);
+    for (const g of groups) {
+      const t = this.buildThread(g.id, g.msgs, g.ids, g.bounces || []);
       if (!t) continue;
       out.push(t);
       for (const x of g.ids) this.alias.set(x, g.id);
@@ -140,6 +148,36 @@ class Engine {
       .finally(() => this.claiming.delete(m.uid));
     this.claiming.set(m.uid, run);
     return run;
+  }
+
+  // שיוך כל מייל חוזר למייל היוצא שחזר: לפי ה-Message-ID המקורי שמצוטט בהודעת השגיאה,
+  // ואם אין – לפי כתובת הנמען שנכשלה: המייל היוצא האחרון לכתובת הזו (עד 7 ימים לפני ההודעה החוזרת).
+  // מחזיר את המיילים החוזרים שלא נמצא להם מקור.
+  matchBounces(bounces, groups) {
+    if (!bounces.length) return [];
+    const byMid = new Map(), outs = [];
+    for (const g of groups) for (const m of g.msgs) {
+      if (!this.isOut(m)) continue;
+      if (m.messageId) byMid.set(m.messageId, { g, m });
+      outs.push({ g, m, t: Date.parse(m.date) });
+    }
+    const orphans = [];
+    for (const b of bounces) {
+      const info = b.bounce;
+      let hit = null;
+      for (const mid of info.mids) if ((hit = byMid.get(mid))) break;
+      if (!hit) {
+        const rc = info.recipients.length ? info.recipients : info.candidates;
+        const bt = Date.parse(b.date);
+        for (const o of outs) {
+          if (o.t > bt + 5 * 60e3 || bt - o.t > 7 * 864e5 || !(o.m.to || []).some(a => rc.includes(a))) continue;
+          if (!hit || o.t > hit.t) hit = o;
+        }
+      }
+      if (hit) (hit.g.bounces ||= []).push({ msg: b, target: hit.m });
+      else orphans.push(b);
+    }
+    return orphans;
   }
 
   // מי הצד השני בשיחה (לאיחוד לפי נושא): בהודעה נכנסת – השולח, ביוצאת – הנמען
@@ -200,7 +238,7 @@ class Engine {
       || (m.imported && (config.FORWARDERS.includes(m.from.address) || config.IMPORT_SENDERS.includes(m.from.address)));
   }
 
-  buildThread(threadId, msgs, ids = [threadId]) {
+  buildThread(threadId, msgs, ids = [threadId], bounces = []) {
     msgs.sort((a, b) => a.date.localeCompare(b.date) || a.uid - b.uid);
     const incoming = msgs.filter(m => !this.isOut(m));
     // מייל חדש שנשלח יזום מהדשבורד – פניה גם לפני שהתורם השיב
@@ -237,6 +275,20 @@ class Engine {
     const last = msgs[msgs.length - 1];
     const lastIsOut = pend.length > 0 || this.isOut(last);
 
+    // מיילים שחזרו: לכל מייל יוצא – למי לא נמסר ולמה. כישלון סופי גובר על הודעת עיכוב.
+    const deliveries = new Map();
+    for (const { msg, target } of bounces) {
+      const b = msg.bounce, tgtTo = (target.to || []).filter(a => a !== this.me);
+      const failedTo = b.recipients.length ? b.recipients : b.candidates.filter(a => tgtTo.includes(a));
+      const d = { kind: b.kind, to: failedTo.length ? failedTo : tgtTo, reason: bounceInfo.reason(b), status: b.status, diag: b.diag, at: msg.date, uid: msg.uid };
+      const prev = deliveries.get(target.uid);
+      if (!prev || (d.kind === 'fail' && prev.kind !== 'fail') || (d.kind === prev.kind && d.at > prev.at)) deliveries.set(target.uid, d);
+    }
+    // המייל האחרון שנשלח בפניה לא הגיע ליעד → הפניה חוזרת לטיפול (עד שעונים שוב או מסמנים "טופל").
+    // מיילים חוזרים ישנים (מעל 30 יום) – רק מסומנים על ההודעה, בלי להחזיר את הפניה.
+    const lastDel = !pend.length && this.isOut(last) ? deliveries.get(last.uid) : null;
+    const bounced = lastDel && lastDel.kind === 'fail' && !last.labels.has(L.done) && Date.now() - Date.parse(lastDel.at) < 30 * 864e5 ? lastDel : null;
+
     // מי הפניה שלו: תווית KOH/by מפורשת; ואם אין – מי שענה אחרון מהדשבורד (לפניות שנענו לפני שהתווית נשמרה).
     // KOH/free = שוחררה / הוחזרה לכללי – אין בעלים. חבר צוות שנמחק לא מקבל פניות.
     let byKey = null;
@@ -247,17 +299,20 @@ class Engine {
       const authors = [...msgs.filter(m => this.isOut(m)).map(m => m.author), ...pend.map(p => p.authorKey)].filter(Boolean);
       assignee = authors.reverse().find(k => this.users.isActive(k)) || null;
     }
+    // מייל שחזר – חוזר למי ששלחה אותו
+    if (bounced && !assignee && !labels.has(L.free) && last.author && this.users.isActive(last.author)) assignee = last.author;
     const autoIgnore = config.IGNORE_SENDERS.includes(customer.address) && !labels.has(L.keep);
 
     let status;
     if (labels.has(L.ignore) || autoIgnore) status = 'ignored';
     else if (labels.has(L.esc)) status = 'escalated';
+    else if (bounced) status = assignee ? 'in_progress' : 'new';
     else if ((lastIsOut && !last.labels.has(L.reopen)) || (!pend.length && last.labels.has(L.done))) status = 'handled';
     else if (assignee) status = 'in_progress';
     else status = 'new';
 
     // בתיקיית המנהל: חדשה (הלקוח כתב אחרון / עוד לא נענתה), בטיפול, או נענתה
-    const mgr = status === 'escalated' ? (assignee ? 'in_progress' : lastIsOut ? 'answered' : 'new') : null;
+    const mgr = status === 'escalated' ? (assignee ? 'in_progress' : lastIsOut && !bounced ? 'answered' : 'new') : null;
 
     const hadReply = msgs.some(m => this.isOut(m) || m.labels.has(L.done));
     // הלקוח כתב שוב אחרי שכבר ענינו – אצל המטפל/ת (בטיפול) או בכללי (אם אין מטפל/ת)
@@ -276,7 +331,7 @@ class Engine {
     // הודעות מערכת (Synchroline, MailAdmin, Charidy Support…) – ישר לקטגוריה "הודעות מערכת"
     const fromSystem = isSystemSender(customer) || isSystemSender(first.from);
     let categories = manualCats.length ? manualCats
-      : fromSystem ? ['system']
+      : fromSystem || first.bounce ? ['system']
       : categorize(first.subject + ' ' + incoming.map(m => m.body).join(' '));
     // "אנגלית" – מזוהה אוטומטית גם כשיש קטגוריות ידניות (אלא אם מישהו הוריד אותה ידנית)
     if (!categories.includes('english') && !categories.includes('system') && !labels.has(L.notEnglish) && isEnglish(incoming.map(m => m.body))) {
@@ -292,6 +347,10 @@ class Engine {
       to: this.isOut(m) ? ((m.to || []).filter(a => a !== this.me).join(', ') || null) : null,
       date: m.date, body: m.body, quoted: m.quoted,
       attachments: m.attachments.map(a => ({ id: `${m.uid}-${a.index}`, name: a.name, type: a.type, size: a.size, inline: a.inline })),
+      // מייל יוצא שחזר: למי לא נמסר ולמה
+      delivery: deliveries.has(m.uid) ? (({ uid, ...d }) => d)(deliveries.get(m.uid)) : null,
+      // מייל חוזר שלא נמצא למה הוא שייך (פניה נפרדת)
+      bounce: m.bounce ? { kind: m.bounce.kind, reason: bounceInfo.reason(m.bounce), to: m.bounce.recipients.concat(m.bounce.candidates).slice(0, 3) } : null,
     });
 
     // ההתכתבות המלאה: הודעות שלא נמצאות בתיבה (לא יובאו) משוחזרות מתוך הציטוט של ההודעות שכן קיימות
@@ -308,7 +367,10 @@ class Engine {
       replyTarget,
       outbound: !!started, outboundUid: started ? started.uid : null, outboundAuthor: started ? started.author : null, outboundTrack: started ? started.outbound === 'track' : false,
       status, mgr, assignee, returned, waiting, assigned, tracking, fromTracking, trackDefault, categories,
-      lastIncoming: lastIn.date,
+      bounced: bounced ? { to: bounced.to, reason: bounced.reason, at: bounced.at } : null,
+      bounceOrphan: !!(first.bounce && !incoming.some(m => !m.bounce)),
+      // מייל שחזר – הפניה עולה לראש הרשימה לפי זמן החזרה
+      lastIncoming: bounced && bounced.at > lastIn.date ? bounced.at : lastIn.date,
       lastActivity: pend.length ? pend[pend.length - 1].date : last.date,
       uids: msgs.map(m => m.uid),
       lastUid: last.uid,
@@ -362,7 +424,7 @@ class Engine {
     return {
       id: t.id, subject: t.subject, fromName: t.fromName, fromEmail: t.fromEmail,
       status: t.status, mgr: t.mgr, assignee: t.assignee, assigneeName: t.assignee ? this.userName(t.assignee) : null,
-      outbound: t.outbound, returned: t.returned, assigned: t.assigned, tracking: t.tracking, fromTracking: t.fromTracking, waiting: t.waiting, overdue, categories: t.categories,
+      outbound: t.outbound, returned: t.returned, bounced: t.bounced, bounceOrphan: t.bounceOrphan, assigned: t.assigned, tracking: t.tracking, fromTracking: t.fromTracking, waiting: t.waiting, overdue, categories: t.categories,
       lastIncoming: t.lastIncoming, lastActivity: t.lastActivity,
       messageCount: t.messages.length,
       hasAttachments: t.messages.some(m => m.attachments.length),
@@ -443,7 +505,7 @@ class Engine {
     const pushed = t => this.openPushes(t, who).length > 0;
     const subF = {
       open: t => (t.status === 'in_progress' && personal(t)) || pushed(t),
-      returned: t => t.status === 'in_progress' && personal(t) && (t.returned || t.assigned),
+      returned: t => t.status === 'in_progress' && personal(t) && (t.returned || t.assigned || !!t.bounced),
       overdue: t => t.status === 'in_progress' && personal(t) && this.summary(t).overdue,
       tracking: t => t.tracking && personal(t),
       done: t => t.status === 'handled' && !t.tracking && personal(t) && this.inRange(t.lastActivity, from, to),
@@ -490,7 +552,7 @@ class Engine {
 
   counts(user) {
     const mgr = this.isManager(user), me = user.key, today = ilDay(new Date().toISOString());
-    const c = { all: 0, general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0, handledAll: 0,
+    const c = { all: 0, general: 0, open: 0, new: 0, in_progress: 0, mine: 0, mineReturned: 0, mineBounced: 0, bounced: 0, mineOverdue: 0, mineDone: 0, mineDoneToday: 0, mineTracking: 0, handledAll: 0,
       handled: 0, tracking: 0, escalated: 0, escalatedOpen: 0, ignored: 0, overdue: 0, pushed: 0 };
     for (const t of this.threads().values()) {
       const s = this.summary(t);
@@ -501,7 +563,8 @@ class Engine {
       if (pushed && t.status !== 'in_progress') c.mine++;
       if (t.status === 'in_progress' && t.assignee === me) {
         c.mine++;
-        if (t.returned || t.assigned) c.mineReturned++;
+        if (t.returned || t.assigned || t.bounced) c.mineReturned++;
+        if (t.bounced) c.mineBounced++;
         if (s.overdue) c.mineOverdue++;
       }
       if (t.status === 'handled') c.handledAll++;
@@ -515,6 +578,7 @@ class Engine {
       if (t.status === 'new' || t.status === 'in_progress') c.open++;
       if (t.status === 'escalated' && t.mgr !== 'answered') c.escalatedOpen++;
       if (s.overdue) c.overdue++;
+      if (t.bounced) c.bounced++;
     }
     if (!mgr) c.new = c.general;
     return c;
@@ -607,7 +671,7 @@ class Engine {
       await this.setOwner(t, t.status === 'escalated' || !t.assignee ? user.key : t.assignee);
       await this.p.modifyLabels(t.uids, [], [L.esc, L.assigned]);
       this.ackPushes(t, user);
-      const what = track ? 'סימן/ה כטופל – במעקב' : 'סימן/ה כטופל – הושלם';
+      const what = (track ? 'סימן/ה כטופל – במעקב' : 'סימן/ה כטופל – הושלם') + (t.bounced ? ' (אחרי שהמייל האחרון לא הגיע ליעד)' : '');
       this.addLog(id, user, 'handled', t.status === 'escalated' ? `${what} (הוסרה מתיקיית המנהל)` : what);
       return this.refresh(id, user);
     });
@@ -988,7 +1052,7 @@ class Engine {
     };
     const subCounts = {
       open: mine.filter(t => t.status === 'in_progress').length,
-      returned: mine.filter(t => t.status === 'in_progress' && (t.returned || t.assigned)).length,
+      returned: mine.filter(t => t.status === 'in_progress' && (t.returned || t.assigned || t.bounced)).length,
       overdue: mine.filter(t => t.status === 'in_progress' && this.summary(t).overdue).length,
       tracking: mine.filter(t => t.tracking).length,
     };
@@ -1020,7 +1084,7 @@ class Engine {
       return {
         key: u.key, name: u.name, role: u.role || 'member', deleted: !!u.deleted,
         open: mine.filter(([t]) => t.status === 'in_progress').length,
-        returned: mine.filter(([t]) => t.status === 'in_progress' && (t.returned || t.assigned)).length,
+        returned: mine.filter(([t]) => t.status === 'in_progress' && (t.returned || t.assigned || t.bounced)).length,
         overdue: mine.filter(([t, s]) => t.status === 'in_progress' && s.overdue).length,
         doneTotal: mine.filter(([t]) => t.status === 'handled').length,
         today: count(u.key, today, today), week: count(u.key, back(6), today), month: count(u.key, back(29), today),

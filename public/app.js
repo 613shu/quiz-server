@@ -37,6 +37,7 @@ const ICONS = {
   send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>',
   tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   chev: '<path d="m6 9 6 6 6-6"/>',
+  bounce: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/>',
 };
 const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 const isMgr = () => !!(S.me && S.me.manager);
@@ -161,6 +162,21 @@ function dayLabel(iso) {
   return d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 const hm = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+const whenText = iso => `${dayLabel(iso)} ${hm(iso)}`;
+// מייל שחזר: באנר ברור בראש הפניה (למי, למה, ומה לעשות)
+function bounceAlert(d) {
+  const b = d.bounced;
+  if (!b) return '';
+  const to = (b.to || []).join(', ');
+  return `<div class="bounce-alert" role="alert">
+    <div class="ba-ic">${ic('bounce')}</div>
+    <div class="ba-main">
+      <div class="ba-title">המייל האחרון ששלחתם בפניה הזו <b>לא הגיע ליעד</b>${to ? ` – <span dir="ltr">${esc(to)}</span>` : ''}</div>
+      <div class="ba-reason">${esc(b.reason)} <span class="ba-time">(הודעת החזרה התקבלה ${esc(whenText(b.at))})</span></div>
+      <div class="ba-hint">אין צורך לשלוח שוב לאותה כתובת – זה לא יגיע. בדקו את הכתובת, תקנו אותה בשדה <b>"אל"</b> בתיבת התשובה ושלחו שוב, או סמנו "טופל" אם הפניה טופלה בדרך אחרת (למשל בטלפון).</div>
+    </div>
+  </div>`;
+}
 const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
 const MB = 1048576, MAX_FILE = 20 * MB, MAX_TOTAL = 24 * MB, MAX_FILES = 10;
 function fileIcon(name, type = '') {
@@ -338,7 +354,10 @@ function renderNotice() {
   const c = S.counts, el = $('#notice');
   const parts = [];
   if (c.pushed) parts.push(`<button class="nt push" data-view="mine" data-sub="open"><span class="nt-ic">${ic('bell')}</span><span>${c.pushed === 1 ? 'יש לך <b>הודעה אחת</b> מהמנהל' : `יש לך <b>${c.pushed}</b> הודעות מהמנהל`} – בראש הפניות הפתוחות</span><span class="nt-go">לצפייה ←</span></button>`);
-  if (c.mineReturned) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('ret')}</span><span>יש לך <b>${c.mineReturned}</b> ${c.mineReturned === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('bounce')}</span><span>${c.mineBounced === 1 ? '<b>מייל אחד</b> ששלחת לא הגיע ליעד' : `<b>${c.mineBounced}</b> מיילים ששלחת לא הגיעו ליעד`} (כתובת שגויה / חסימה) – צריך לבדוק ולשלוח שוב</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (isMgr() && c.bounced > c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="open" data-sub=""><span class="nt-ic">${ic('bounce')}</span><span>בצוות: <b>${c.bounced}</b> ${c.bounced === 1 ? 'פניה שבה המייל האחרון' : 'פניות שבהן המייל האחרון'} לא הגיע ליעד</span><span class="nt-go">לצפייה ←</span></button>`);
+  const ret = (c.mineReturned || 0) - (c.mineBounced || 0);   // מיילים שחזרו כבר מופיעים בהודעה משלהם
+  if (ret > 0) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('ret')}</span><span>יש לך <b>${ret}</b> ${ret === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
   if (c.mineOverdue) parts.push(`<button class="nt alert" data-view="mine" data-sub="overdue"><span class="nt-ic">${ic('clock')}</span><span><b>${c.mineOverdue}</b> מהפניות שלך ממתינות למענה יותר מ-${S.cfg.overdueHours} שעות</span><span class="nt-go">לצפייה ←</span></button>`);
   el.hidden = !parts.length;
   el.innerHTML = parts.join('');
@@ -387,6 +406,8 @@ function renderList() {
           ${it.fromTracking ? '<span class="pill from-track">חזרה ממעקב</span>' : ''}
           ${it.assigned ? '<span class="pill assigned">הועבר אליך</span>' : ''}
           ${it.returned ? '<span class="pill returned">הלקוח חזר</span>' : ''}
+          ${it.bounced ? `<span class="pill bounced" title="${esc(it.bounced.reason)}">${ic('bounce')}המייל לא הגיע ליעד</span>` : ''}
+          ${it.bounceOrphan ? `<span class="pill bounced">${ic('bounce')}מייל חוזר</span>` : ''}
           ${it.overdue ? `<span class="pill overdue">${waitText(it.lastIncoming)}</span>` : ''}
           ${ownerTag(it)}
           ${it.pushedTo ? `<span class="pill pushed-to" title="ההודעה שהקפצת עוד לא נקראה">${ic('bell')}הוקפץ אל ${esc(it.pushedTo.map(x => x.name).join(', '))} · טרם נקרא</span>` : ''}
@@ -435,6 +456,10 @@ function bubble(m, first) {
         ${m.attachments.length ? attList(m.attachments) : ''}
         ${out && m.to && m.to.toLowerCase() !== (S.detail.fromEmail || '').toLowerCase() ? `<div class="b-to">נשלח אל <span dir="ltr">${esc(m.to)}</span></div>` : ''}
         ${String(m.id).startsWith('pending') ? '<div class="sending">✓ נשלח</div>' : ''}
+        ${m.delivery ? `<div class="b-deliv ${m.delivery.kind}" title="${esc([m.delivery.status, m.delivery.diag].filter(Boolean).join(' · '))}">${ic('bounce')}<span>${m.delivery.kind === 'fail'
+          ? `<b>לא הגיע ליעד</b>${m.delivery.to && m.delivery.to.length ? ` (<span dir="ltr">${esc(m.delivery.to.join(', '))}</span>)` : ''} – ${esc(m.delivery.reason)}`
+          : `<b>עיכוב במסירה</b> – ${esc(m.delivery.reason)}`}</span></div>` : ''}
+        ${m.bounce ? `<div class="b-deliv fail">${ic('bounce')}<span><b>הודעת "מייל חוזר"</b> – ${esc(m.bounce.reason)} לא נמצא במערכת המייל המקורי שחזר${m.bounce.to && m.bounce.to.length ? ` (<span dir="ltr">${esc(m.bounce.to.join(', '))}</span>)` : ''}.</span></div>` : ''}
       </div>
     </div>`;
 }
@@ -626,6 +651,7 @@ function renderDetail() {
         ${d.fromTracking ? '<span class="pill from-track">הלקוח חזר – הפניה הייתה במעקב</span>' : ''}
         ${d.assigned ? '<span class="pill assigned">הועבר אליך ע״י המנהל</span>' : ''}
         ${d.returned ? '<span class="pill returned">הלקוח כתב שוב אחרי שענינו</span>' : ''}
+        ${d.bounced ? `<span class="pill bounced">${ic('bounce')}המייל האחרון לא הגיע ליעד</span>` : ''}
         ${d.overdue ? `<span class="pill overdue">${waitText(d.lastIncoming)}</span>` : ''}
         ${owner}
       </div>
@@ -634,6 +660,7 @@ function renderDetail() {
       ${d.readOnly ? '' : notesBox(d)}
     </div>
     ${pinnedPushes(d).map(n => pushNote(n, true)).join('')}
+    ${bounceAlert(d)}
     ${composer}
     <div class="convo" id="convo">${timeline(d)}</div>`;
   renderFiles();

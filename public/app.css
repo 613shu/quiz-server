@@ -909,3 +909,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .now-cta:hover { filter: brightness(1.1); transform: translateY(-1px); }
 .now-cta .i { width: 17px; height: 17px; }
 @media (max-width: 900px) { .now-cta { margin-inline-start: 0; flex-basis: 100%; justify-content: center; } }
+
+/* מייל שחזר (לא הגיע ליעד) */
+.pill.bounced { color: #ffb3ba; background: rgba(255,93,108,.18); box-shadow: inset 0 0 0 1px rgba(255,93,108,.45); }
+.pill.bounced .i { width: 13px; height: 13px; }
+.b-deliv { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; padding: 7px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.5;
+  color: #ffc2c8; background: rgba(255,93,108,.13); box-shadow: inset 0 0 0 1px rgba(255,93,108,.4); }
+.b-deliv .i { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--red); }
+.b-deliv.delay { color: #ffd98a; background: rgba(255,176,32,.12); box-shadow: inset 0 0 0 1px rgba(255,176,32,.35); }
+.b-deliv.delay .i { color: var(--amber); }
+.bounce-alert { display: flex; gap: 12px; align-items: flex-start; margin: 12px 20px 0; padding: 14px 16px; border-radius: 14px;
+  background: linear-gradient(90deg, rgba(255,93,108,.22), rgba(255,93,108,.08)); box-shadow: inset 0 0 0 1px rgba(255,93,108,.5); }
+.ba-ic { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; flex: none; background: rgba(255,93,108,.25); color: var(--red); }
+.ba-ic .i { width: 19px; height: 19px; }
+.ba-main { flex: 1; min-width: 0; }
+.ba-title { font-size: 15px; font-weight: 700; color: #ffd0d4; }
+.ba-reason { margin-top: 3px; font-size: 13.5px; color: var(--ink-2); }
+.ba-time { color: var(--muted); font-size: 12px; }
+.ba-hint { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.55; }

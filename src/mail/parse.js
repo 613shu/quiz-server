@@ -1,6 +1,7 @@
 // המרת מייל גולמי (MIME) לרשומה שהמערכת עובדת איתה.
 const { simpleParser } = require('mailparser');
 const { isSignature } = require('./signature');
+const bounce = require('./bounce');
 
 // מפריד בין הטקסט החדש לבין ההודעה המצוטטת (תשובה על מייל קודם)
 // (בלי \s שחוצה שורות ובלי חזרות מקוננות – כדי שמייל ארוך לא יקפיא את השרת)
@@ -84,6 +85,8 @@ async function parseRaw(raw, meta = {}) {
   const { body, quoted } = splitQuoted(text);
   const refs = p.references ? (Array.isArray(p.references) ? p.references : [p.references]) : [];
   const h = k => { const v = p.headers.get(k); return v == null ? null : String(v); };
+  // מייל חוזר (הודעת אי-מסירה) – משויך אחר כך למייל המקורי שנשלח מהדשבורד
+  const b = h('x-koh-system') ? null : bounce.detect(p, text);
   return {
     uid: meta.uid,
     threadId: meta.threadId ? String(meta.threadId) : null,
@@ -105,7 +108,8 @@ async function parseRaw(raw, meta = {}) {
     // מייל חדש שנשלח יזום מהדשבורד ('done' / 'track') + שם הנמען (לתצוגה כ"פונה")
     outbound: h('x-koh-outbound'),
     toName: p.to && [].concat(p.to)[0] && [].concat(p.to)[0].value[0] ? [].concat(p.to)[0].value[0].name || '' : '',
-    attachments: fileParts(p).map((a, i) => ({
+    bounce: b,
+    attachments: b ? [] : fileParts(p).map((a, i) => ({
       index: i, name: a.filename || `קובץ-${i + 1}`, type: a.contentType, size: a.size, inline: !!a.related,
     })),
   };
