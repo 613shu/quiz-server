@@ -10,6 +10,8 @@ const Provider = config.MAIL_PROVIDER === 'fake' ? require('./src/mail/fake') : 
 const provider = new Provider();
 const users = new Users();
 const engine = new Engine(provider, users);
+const { AiWorker } = require('./src/ai-worker');
+const aiWorker = new AiWorker(engine);
 
 const app = express();
 app.set('trust proxy', 1);
@@ -90,6 +92,10 @@ app.get('/api/config', h(req => ({
   inbox: provider.address,
   overdueHours: config.OVERDUE_HOURS,
 })));
+
+// סיווג AI – למנהל בלבד: מצב, והרצה יבשה (מה היה נשלח, בלי לשלוח)
+app.get('/api/ai/status', managerOnly, h(() => aiWorker.status()));
+app.get('/api/ai/preview', managerOnly, h(req => ({ items: aiWorker.preview(req.query.n) })));
 
 app.get('/api/status', h(() => ({ ...provider.status, provider: provider.name, configured: provider.configured() })));
 

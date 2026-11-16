@@ -4,6 +4,7 @@
 // מצורפת כפניה נפרדת – עם השולח, התאריך והקבצים המקוריים – ומסווגת לפי מה שכתוב בנושא.
 const config = require('./config');
 const { categorize } = require('./categorize');
+const aiOn = () => require('./ai-classify').isConfigured();
 
 const LABEL_BOX = 'KOH/import';        // כל ההודעות המיובאות (נוח לאיתור/ביטול)
 const DONE_LABEL = 'KOH/imported';     // סימון על מייל הבקשה – כדי שלא ייובא פעמיים
@@ -176,7 +177,8 @@ async function runImport(provider, rec, { checkAuth = true } = {}) {
     const m = provider.messages.get(uid);
     if (!m) continue;
     const labels = [...catLabels];
-    if (catLabels.length && ![...m.labels].some(l => l.startsWith('KOH/cat/'))) {
+    // כשסיווג AI פעיל – לא מוסיפים ניחוש מילות מפתח (הקטגוריה מבקשת הייבוא נשארת)
+    if (catLabels.length && !aiOn() && ![...m.labels].some(l => l.startsWith('KOH/cat/'))) {
       labels.push(...categorize(`${m.subject} ${m.body || ''}`).filter(k => k !== 'general').map(k => `KOH/cat/${k}`));
     }
     if (cls.done && ![...m.labels].some(l => l.startsWith('KOH/by/'))) labels.push('KOH/done');

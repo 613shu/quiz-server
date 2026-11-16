@@ -13,6 +13,8 @@ const L = {
   free: 'KOH/free', assigned: 'KOH/assigned', outSeen: 'KOH/outbound',
   // "ראיתי" על מייל שחזר – מוריד את ההודעה מראש המסך; הפניה נשארת בטיפול עד שליחה חוזרת / "טופל"
   bounceSeen: 'KOH/bounce-seen',
+  // סווג ע"י AI (ראו ai-worker.js)
+  ai: 'KOH/ai',
   // KOH/by/<key> = מי שהפניה שלו. נשאר גם אחרי המענה – כדי שתגובה חוזרת של הלקוח תגיע לאותו חבר צוות.
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
 };
@@ -332,8 +334,10 @@ class Engine {
     const manualCats = [...labels].filter(l => l.startsWith('KOH/cat/')).map(l => l.slice(8)).filter(k => this.catKeys.has(k));
     // הודעות מערכת (Synchroline, MailAdmin, Charidy Support…) – ישר לקטגוריה "הודעות מערכת"
     const fromSystem = isSystemSender(customer) || isSystemSender(first.from);
+    // KOH/ai בלי קטגוריה = ה-AI סיווג "כללי". בלי סימון (AI כבוי / עוד לא סווג / נכשל) – לפי מילות מפתח.
     let categories = manualCats.length ? manualCats
       : fromSystem || first.bounce ? ['system']
+      : labels.has(L.ai) ? ['general']
       : categorize(first.subject + ' ' + incoming.map(m => m.body).join(' '));
     // "אנגלית" – מזוהה אוטומטית גם כשיש קטגוריות ידניות (אלא אם מישהו הוריד אותה ידנית)
     if (!categories.includes('english') && !categories.includes('system') && !labels.has(L.notEnglish) && isEnglish(incoming.map(m => m.body))) {
