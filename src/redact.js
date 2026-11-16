@@ -25,7 +25,14 @@ const CLOSING_MAX_LINE = 40;     // שורת סיום היא קצרה
 const CLOSING_LOOKBACK = 6;      // מחפשים רק בשורות האחרונות
 
 const EMAIL = /[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,6}/g;
-const URL = /(?:https?:\/\/|www\.)[^\s<>"']{1,500}/gi;
+// קישור עד סוף המילה (בלי מגבלת 500 – אחרת שארית ארוכה ומקודדת נשלחת). הקלט כבר חתוך ל-MAX_SCAN.
+const URL = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+// כתובת בלי http/www (למשל wa.me/?text=..., bit.ly/xyz, koh.org.il/page)
+const BARE_URL = /(?<![\w@.])[\w-]{1,63}(?:\.[\w-]{1,63}){0,4}\.(?:com|org|net|il|me|ly|io|co|info|link|app|to)(?:\/[^\s<>"']*)(?![\w])/gi;
+// טקסט מקודד (%d7%90...) – 3 קידודים ומעלה ברצף, עם מה שצמוד אליהם
+const ENCODED = /[^\s<>"']*(?:%[0-9a-f]{2}){3}[^\s<>"']*/gi;
+// "מילה" ארוכה מאוד בלי רווחים (base64, מזהים, שאריות קישורים) – לא תורמת לסיווג
+const LONG_TOKEN = /[^\s]{60,}/g;
 const IBAN = /\bIL\d{2}(?:[ -]?\d){10,30}/gi;
 const DATE = /(?<!\d)\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?(?!\d)/g;
 const PHONE = /(?<!\d)(?:\+?972[-\s]?|0)(?:[-\s]?\d){8,9}(?!\d)/g;
@@ -113,6 +120,9 @@ function redactText(text, { names = [], max = MAX_BODY, closing = true } = {}) {
   if (closing) t = cutClosing(t);
   t = t.replace(EMAIL, T.email)
     .replace(URL, T.url)
+    .replace(BARE_URL, T.url)
+    .replace(ENCODED, T.url)
+    .replace(LONG_TOKEN, '')
     .replace(IBAN, T.bank)
     .replace(PHONE, T.phone)
     .replace(DATE, T.date);

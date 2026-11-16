@@ -88,3 +88,22 @@ test('פלט מלא לדוגמה', () => {
   for (const x of ['מירי', 'אברהם', '123456789', '360', '01/11', '7654321', 'walla']) not(r.text, x);
   has(r.text, 'חויבתי פעמיים'); has(r.text, 'נדרים פלוס'); has(r.text, 'חיוב כפול');
 });
+
+test('קישור ארוך ומקודד מוסר כולו (לא רק 500 התווים הראשונים)', () => {
+  const enc = '%d7%90%d7%99%d7%9f%20%d7%99%d7%94%d7%95%d7%93%d7%99'.repeat(40);
+  for (const s of ['שתפו: https://wa.me/?text=' + enc + ' תודה', 'שתפו: wa.me/?text=' + enc + ' תודה', 'טקסט ' + enc + ' תודה']) {
+    const r = redactText(s);
+    not(r, '%d7'); not(r, 'wa.me'); has(r, '[קישור]');
+    assert.ok(r.length < 40, r);
+  }
+});
+
+test('כתובת בלי http, ומילה ארוכה בלי רווחים', () => {
+  const r = redactText('ראו bit.ly/abc123 וגם koh.org.il/donate?id=5 קוד ' + 'Zx9'.repeat(30) + ' סוף');
+  not(r, 'bit.ly'); not(r, 'koh.org.il'); not(r, 'Zx9'); has(r, 'סוף');
+});
+
+test('נקודה רגילה בטקסט לא נחשבת קישור', () => {
+  const r = redactText('תרמתי.com לא קשור. שלום.כן');
+  has(r, 'שלום.כן');
+});
