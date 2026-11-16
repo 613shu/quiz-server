@@ -11,18 +11,20 @@ function parseTeam(s) {
 }
 
 const CATEGORIES = [
-  { key: 'inquiry',   name: 'בירור תרומה',        color: '#3b82f6' },
-  { key: 'assign',    name: 'שיוך תרומה',         color: '#8b5cf6' },
+  { key: 'inquiry',   name: 'בירור תרומה',        color: '#3b82f6', aliases: ['אסמכתא', 'אסמכתה', 'אסמכתאות', 'אסמכתות'] },
+  { key: 'assign',    name: 'שיוך תרומה ושגרירות', color: '#8b5cf6', aliases: ['שיוך', 'שגרירות', 'שגרירה'] },
   { key: 'receipt',   name: 'לא קיבלתי קבלה',     color: '#f59e0b' },
   { key: 'standing',  name: 'הו"ק בנקאית',        color: '#0ea5e9' },
   { key: 'double',    name: 'חיוב כפול / החזר',   color: '#ef4444' },
   { key: 'cancel',    name: 'ביטול / שינוי תרומה', color: '#f97316', aliases: ['ביטולים', 'ביטול', 'שינויים'] },
-  { key: 'ambassador',name: 'שגרירות',            color: '#ec4899' },
-  { key: 'proof',     name: 'אסמכתאות',           color: '#10b981', aliases: ['אסמכתא', 'אסמכתה', 'אסמכתאות', 'אסמכתות'] },
+  { key: 'collection',name: 'איסוף ומזומן',       color: '#10b981', aliases: ['איסוף', 'מזומן', 'מעטפות'] },
   { key: 'english',   name: 'אנגלית',             color: '#0f766e', aliases: ['english', 'אנגלית'] },
   { key: 'system',    name: 'הודעות מערכת',       color: '#a16207', aliases: ['מערכת', 'הודעות מערכת', 'system'] },
   { key: 'general',   name: 'כללי',               color: '#64748b' },
 ];
+
+// קטגוריות שאוחדו (2026-11-16): תוויות ישנות מומרות אוטומטית בהפעלה (ראו ai-worker.js → migrateCategories)
+const MERGED_CATEGORIES = { ambassador: 'assign', proof: 'inquiry' };
 
 module.exports = {
   PORT: env.PORT || 3000,
@@ -63,6 +65,7 @@ module.exports = {
   OVERDUE_HOURS: +(env.OVERDUE_HOURS || 48),
   SESSION_SECRET: env.SESSION_SECRET || '',
   CATEGORIES,
+  MERGED_CATEGORIES,
   SYNC_INTERVAL_MS: +(env.SYNC_INTERVAL_MS || 60000),
 
   // סיווג AI (Gemini). כבוי כברירת מחדל – נדלק רק עם AI_ENABLED=1 ומפתח.

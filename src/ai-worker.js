@@ -34,7 +34,8 @@ class AiWorker {
     this.done = 0;
     this.redone = 0;
     const kick = () => setTimeout(() => this.kick(), 2000);
-    engine.p.on('ready', kick);
+    // המרת קטגוריות שאוחדו – רץ תמיד (גם כש-AI כבוי), פעם בהפעלה, לפני הסיווג
+    engine.p.on('ready', () => this.migrateCategories().catch(e => console.error('[ai] migrate:', e.message)).finally(kick));
     engine.p.on('change', kick);
   }
 
@@ -134,6 +135,25 @@ class AiWorker {
       this.e.cache = null;
       if (kind === 'first') this.done++; else this.redone++;
     });
+  }
+
+  // קטגוריות שאוחדו (config.MERGED_CATEGORIES): KOH/cat/ambassador → KOH/cat/assign, KOH/cat/proof → KOH/cat/inquiry
+  async migrateCategories() {
+    const map = config.MERGED_CATEGORIES || {};
+    let moved = 0;
+    for (const [from, to] of Object.entries(map)) {
+      const oldL = `KOH/cat/${from}`, newL = `KOH/cat/${to}`;
+      const uids = [...this.e.p.messages.values()].filter(m => m.labels.has(oldL)).map(m => m.uid);
+      for (let i = 0; i < uids.length; i += 200) {
+        const part = uids.slice(i, i + 200);
+        await this.e.p.modifyLabels(part, [newL], []);
+        await this.e.p.modifyLabels(part, [], [oldL]);
+      }
+      for (const uid of uids) { const m = this.e.p.messages.get(uid); if (m) { m.labels.add(newL); m.labels.delete(oldL); } }
+      moved += uids.length;
+    }
+    if (moved) { this.e.cache = null; console.log(`[ai] הומרו ${moved} תוויות קטגוריה שאוחדו`); }
+    return moved;
   }
 
   // סיווג מחדש של כל מה שה-AI סיווג (למשל אחרי שיפור ההסברים): מוחק את תוויות ה-AI

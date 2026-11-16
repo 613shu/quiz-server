@@ -49,13 +49,13 @@ test('סיווג, שמירה, ואין סיווג חוזר', async () => {
 
   // תיקון ידני לא נדרס, ופניה חדשה מסווגת לבד
   const t = bySubj('לא קיבלתי קבלה');
-  await p.modifyLabels(t.uids, ['KOH/cat/proof'], ['KOH/cat/receipt']); e2.cache = null;
+  await p.modifyLabels(t.uids, ['KOH/cat/cancel'], ['KOH/cat/receipt']); e2.cache = null;
   await p.incoming({ name: 'א ב', email: 'n@x.com', subject: 'נושא חדש', text: 'גבו פעמיים' });
   e2.cache = null;
   assert.strictEqual(w2.pending().length, 1);
   await w2.run();
   assert.strictEqual(calls, 4);
-  assert.deepStrictEqual([...e2.threads().values()].find(x => x.subject.includes('לא קיבלתי')).categories, ['proof']);
+  assert.deepStrictEqual([...e2.threads().values()].find(x => x.subject.includes('לא קיבלתי')).categories, ['cancel']);
 });
 
 test('כשל → לא מסומן, מוצג לפי מילות מפתח', async () => {
@@ -160,4 +160,26 @@ test('סיווג מחדש: מוחק רק תוויות AI, לא נוגע בתיק
   assert.deepStrictEqual(get('לא מופיעות').categories, ['inquiry']);
   assert.deepStrictEqual(get('לא קיבלתי').categories, ['receipt']);
   global.fetch = save;
+});
+
+test('המרת קטגוריות שאוחדו: שגרירות→שיוך, אסמכתאות→בירור', async () => {
+  const p = new FakeProvider();
+  const e = new Engine(p, new Users());
+  const w = new AiWorker(e); w.kick = () => {};
+  await p.start();
+  const [a, b] = [...e.threads().values()];
+  await p.modifyLabels(a.uids, ['KOH/cat/ambassador', 'KOH/cat-manual'], []);
+  await p.modifyLabels(b.uids, ['KOH/cat/proof'], []);
+  assert.ok(await w.migrateCategories() >= 2);
+  e.cache = null;
+  const t = id => e.threads().get(id);
+  assert.deepStrictEqual(t(a.id).categories, ['assign']);
+  assert.ok(t(b.id).categories.includes('inquiry'));
+  assert.ok(!t(a.id).raw.some(m => m.labels.has('KOH/cat/ambassador')));
+});
+
+test('מילות מפתח: איסוף ומזומן, ושגרירה → שיוך', () => {
+  const { categorize } = require('../src/categorize');
+  assert.deepStrictEqual(categorize('יש אצלי מעטפות עם מזומן, מתי אפשר לאסוף?'), ['collection']);
+  assert.deepStrictEqual(categorize('אני שגרירה והקישור שלי לא עובד'), ['assign']);
 });
