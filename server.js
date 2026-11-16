@@ -100,6 +100,7 @@ app.get('/api/inquiries', h(req => ({
 app.get('/api/inquiries/:id', h(req => engine.detail(engine.get(req.params.id, req.user), req.user)));
 app.post('/api/inquiries/:id/take', h(req => engine.take(req.params.id, req.user)));
 app.post('/api/inquiries/:id/release', h(req => engine.release(req.params.id, req.user)));
+app.post('/api/inquiries/:id/bounce-seen', h(req => engine.markBounceSeen(req.params.id, req.user)));
 app.post('/api/inquiries/:id/handled', h(req => engine.markHandled(req.params.id, req.user, !!(req.body && req.body.track))));
 app.post('/api/inquiries/:id/tracking', h(req => engine.setTracking(req.params.id, req.user, !!(req.body && req.body.on))));
 app.post('/api/inquiries/:id/reopen', h(req => engine.reopen(req.params.id, req.user)));

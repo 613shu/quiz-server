@@ -11,6 +11,8 @@ const bounceInfo = require('./mail/bounce');
 const L = {
   done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', track: 'KOH/track', notEnglish: 'KOH/not-english',
   free: 'KOH/free', assigned: 'KOH/assigned', outSeen: 'KOH/outbound',
+  // "ראיתי" על מייל שחזר – מוריד את ההודעה מראש המסך; הפניה נשארת בטיפול עד שליחה חוזרת / "טופל"
+  bounceSeen: 'KOH/bounce-seen',
   // KOH/by/<key> = מי שהפניה שלו. נשאר גם אחרי המענה – כדי שתגובה חוזרת של הלקוח תגיע לאותו חבר צוות.
   by: k => `KOH/by/${k}`, cat: k => `KOH/cat/${k}`,
 };
@@ -367,7 +369,7 @@ class Engine {
       replyTarget,
       outbound: !!started, outboundUid: started ? started.uid : null, outboundAuthor: started ? started.author : null, outboundTrack: started ? started.outbound === 'track' : false,
       status, mgr, assignee, returned, waiting, assigned, tracking, fromTracking, trackDefault, categories,
-      bounced: bounced ? { to: bounced.to, reason: bounced.reason, at: bounced.at } : null,
+      bounced: bounced ? { to: bounced.to, reason: bounced.reason, at: bounced.at, seen: last.labels.has(L.bounceSeen) } : null,
       bounceOrphan: !!(first.bounce && !incoming.some(m => !m.bounce)),
       // מייל שחזר – הפניה עולה לראש הרשימה לפי זמן החזרה
       lastIncoming: bounced && bounced.at > lastIn.date ? bounced.at : lastIn.date,
@@ -563,8 +565,8 @@ class Engine {
       if (pushed && t.status !== 'in_progress') c.mine++;
       if (t.status === 'in_progress' && t.assignee === me) {
         c.mine++;
-        if (t.returned || t.assigned || t.bounced) c.mineReturned++;
-        if (t.bounced) c.mineBounced++;
+        if (t.returned || t.assigned || (t.bounced && !t.bounced.seen)) c.mineReturned++;
+        if (t.bounced && !t.bounced.seen) c.mineBounced++;
         if (s.overdue) c.mineOverdue++;
       }
       if (t.status === 'handled') c.handledAll++;
@@ -578,7 +580,7 @@ class Engine {
       if (t.status === 'new' || t.status === 'in_progress') c.open++;
       if (t.status === 'escalated' && t.mgr !== 'answered') c.escalatedOpen++;
       if (s.overdue) c.overdue++;
-      if (t.bounced) c.bounced++;
+      if (t.bounced && !t.bounced.seen) c.bounced++;
     }
     if (!mgr) c.new = c.general;
     return c;
@@ -673,6 +675,18 @@ class Engine {
       this.ackPushes(t, user);
       const what = (track ? 'סימן/ה כטופל – במעקב' : 'סימן/ה כטופל – הושלם') + (t.bounced ? ' (אחרי שהמייל האחרון לא הגיע ליעד)' : '');
       this.addLog(id, user, 'handled', t.status === 'escalated' ? `${what} (הוסרה מתיקיית המנהל)` : what);
+      return this.refresh(id, user);
+    });
+  }
+
+  // "ראיתי" על מייל שחזר: ההודעה יורדת מראש המסך (גם אצל המנהל), הפניה נשארת בטיפול
+  markBounceSeen(id, user) {
+    return this.locked(id, async () => {
+      const t = this.getEdit(id, user);
+      if (!t.bounced || t.bounced.seen) return this.refresh(id, user);
+      if (t.assignee && t.assignee !== user.key && !this.isManager(user)) throw new AppError(403, `הפניה של ${this.userName(t.assignee)}`);
+      await this.p.modifyLabels([t.lastUid], [L.bounceSeen], []);
+      this.addLog(id, user, 'bounce-seen', 'ראה/תה שהמייל האחרון לא הגיע ליעד');
       return this.refresh(id, user);
     });
   }

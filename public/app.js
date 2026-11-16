@@ -163,18 +163,22 @@ function dayLabel(iso) {
 }
 const hm = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
 const whenText = iso => `${dayLabel(iso)} ${hm(iso)}`;
-// מייל שחזר: באנר ברור בראש הפניה (למי, למה, ומה לעשות)
+// מייל שחזר: באנר ברור בראש הפניה (למי, למה, ומה לעשות). אחרי "ראיתי" – שורה שקטה אחת.
 function bounceAlert(d) {
   const b = d.bounced;
   if (!b) return '';
   const to = (b.to || []).join(', ');
+  const toHtml = to ? ` <span class="ba-to" dir="ltr">${esc(to)}</span>` : '';
+  if (b.seen) return `<div class="bounce-quiet">${ic('bounce')}<span>המייל האחרון לא הגיע ליעד${toHtml} · ${esc(b.reason)}</span></div>`;
+  const canAck = d.assignee === S.me.key || isMgr() || !d.assignee;
   return `<div class="bounce-alert" role="alert">
     <div class="ba-ic">${ic('bounce')}</div>
     <div class="ba-main">
-      <div class="ba-title">המייל האחרון ששלחתם בפניה הזו <b>לא הגיע ליעד</b>${to ? ` – <span dir="ltr">${esc(to)}</span>` : ''}</div>
-      <div class="ba-reason">${esc(b.reason)} <span class="ba-time">(הודעת החזרה התקבלה ${esc(whenText(b.at))})</span></div>
-      <div class="ba-hint">אין צורך לשלוח שוב לאותה כתובת – זה לא יגיע. בדקו את הכתובת, תקנו אותה בשדה <b>"אל"</b> בתיבת התשובה ושלחו שוב, או סמנו "טופל" אם הפניה טופלה בדרך אחרת (למשל בטלפון).</div>
+      <div class="ba-title">המייל האחרון לא הגיע ליעד${toHtml}</div>
+      <div class="ba-reason">${esc(b.reason)} <span class="ba-time">· ${esc(whenText(b.at))}</span></div>
+      <div class="ba-hint">תקנו את הכתובת בשדה "אל" ושלחו שוב, או סמנו "טופל" אם טופל בדרך אחרת.</div>
     </div>
+    ${canAck ? `<button class="btn ghost sm ba-ack" data-act="bounce-seen" title="ההודעה תרד מראש המסך. הפניה נשארת אצלך עד שתשלחי שוב או תסמני טופל">${ic('check')} ראיתי</button>` : ''}
   </div>`;
 }
 const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
@@ -354,7 +358,7 @@ function renderNotice() {
   const c = S.counts, el = $('#notice');
   const parts = [];
   if (c.pushed) parts.push(`<button class="nt push" data-view="mine" data-sub="open"><span class="nt-ic">${ic('bell')}</span><span>${c.pushed === 1 ? 'יש לך <b>הודעה אחת</b> מהמנהל' : `יש לך <b>${c.pushed}</b> הודעות מהמנהל`} – בראש הפניות הפתוחות</span><span class="nt-go">לצפייה ←</span></button>`);
-  if (c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('bounce')}</span><span>${c.mineBounced === 1 ? '<b>מייל אחד</b> ששלחת לא הגיע ליעד' : `<b>${c.mineBounced}</b> מיילים ששלחת לא הגיעו ליעד`} (כתובת שגויה / חסימה) – צריך לבדוק ולשלוח שוב</span><span class="nt-go">לצפייה ←</span></button>`);
+  if (c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('bounce')}</span><span>${c.mineBounced === 1 ? '<b>מייל אחד</b> ששלחת לא הגיע ליעד' : `<b>${c.mineBounced}</b> מיילים ששלחת לא הגיעו ליעד`} – צריך לבדוק ולשלוח שוב</span><span class="nt-go">לצפייה ←</span></button>`);
   if (isMgr() && c.bounced > c.mineBounced) parts.push(`<button class="nt alert bounce" data-view="open" data-sub=""><span class="nt-ic">${ic('bounce')}</span><span>בצוות: <b>${c.bounced}</b> ${c.bounced === 1 ? 'פניה שבה המייל האחרון' : 'פניות שבהן המייל האחרון'} לא הגיע ליעד</span><span class="nt-go">לצפייה ←</span></button>`);
   const ret = (c.mineReturned || 0) - (c.mineBounced || 0);   // מיילים שחזרו כבר מופיעים בהודעה משלהם
   if (ret > 0) parts.push(`<button class="nt warm" data-view="mine" data-sub="returned"><span class="nt-ic">${ic('ret')}</span><span>יש לך <b>${ret}</b> ${ret === 1 ? 'פניה חוזרת' : 'פניות חוזרות'} לטיפול</span><span class="nt-go">לצפייה ←</span></button>`);
@@ -406,7 +410,7 @@ function renderList() {
           ${it.fromTracking ? '<span class="pill from-track">חזרה ממעקב</span>' : ''}
           ${it.assigned ? '<span class="pill assigned">הועבר אליך</span>' : ''}
           ${it.returned ? '<span class="pill returned">הלקוח חזר</span>' : ''}
-          ${it.bounced ? `<span class="pill bounced" title="${esc(it.bounced.reason)}">${ic('bounce')}המייל לא הגיע ליעד</span>` : ''}
+          ${it.bounced ? `<span class="pill bounced${it.bounced.seen ? ' seen' : ''}" title="${esc(it.bounced.reason)}">${ic('bounce')}לא הגיע ליעד</span>` : ''}
           ${it.bounceOrphan ? `<span class="pill bounced">${ic('bounce')}מייל חוזר</span>` : ''}
           ${it.overdue ? `<span class="pill overdue">${waitText(it.lastIncoming)}</span>` : ''}
           ${ownerTag(it)}
@@ -651,7 +655,7 @@ function renderDetail() {
         ${d.fromTracking ? '<span class="pill from-track">הלקוח חזר – הפניה הייתה במעקב</span>' : ''}
         ${d.assigned ? '<span class="pill assigned">הועבר אליך ע״י המנהל</span>' : ''}
         ${d.returned ? '<span class="pill returned">הלקוח כתב שוב אחרי שענינו</span>' : ''}
-        ${d.bounced ? `<span class="pill bounced">${ic('bounce')}המייל האחרון לא הגיע ליעד</span>` : ''}
+        ${d.bounced ? `<span class="pill bounced${d.bounced.seen ? ' seen' : ''}">${ic('bounce')}לא הגיע ליעד</span>` : ''}
         ${d.overdue ? `<span class="pill overdue">${waitText(d.lastIncoming)}</span>` : ''}
         ${owner}
       </div>
@@ -891,7 +895,7 @@ async function act(action) {
   if (action === 'escalate') { $('#esc-note').value = ''; S.escFiles = []; renderEscFiles(); $('#dlg-escalate').returnValue = ''; $('#dlg-escalate').showModal(); return; }
   if (action === 'assign') return openAssign();
   const msgs = { take: 'הפניה אצלך – אפשר לענות', release: 'הפניה שוחררה', handled: 'סומן: טופל – הושלם', 'handled-track': 'סומן: טופל – במעקב',
-    'track-on': 'הפניה עברה למעקב', 'track-off': 'סומן: טופל – הושלם', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
+    'track-on': 'הפניה עברה למעקב', 'bounce-seen': 'סומן – ההודעה הוסרה מראש המסך', 'track-off': 'סומן: טופל – הושלם', reopen: 'הפניה חזרה לפניות הכלליות', ignore: 'הוסתר – לא פניה' };
   if (action === 'release' && ($('#reply-body')?.value.trim() || filesOf(d.id).length) && !confirm('יש טיוטה שלא נשלחה. לשחרר את הפניה בכל זאת? (הטיוטה תישמר)')) return;
   const clicked = document.querySelector(`[data-act="${action}"]`);
   document.querySelectorAll('.d-actions [data-act]').forEach(b => (b.disabled = true));
