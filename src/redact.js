@@ -129,7 +129,8 @@ function redactText(text, { names = [], max = MAX_BODY, closing = true } = {}) {
   t = replaceDigits(t);
   t = replaceKnownNames(t, nameWords(names));
   t = replaceCuedNames(t);
-  t = t.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  // רווחים כפולים, שורות ריקות ורווחים בקצות שורות – לא תורמים לסיווג, רק טוקנים
+  t = t.replace(/[ \t\u00a0]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{2,}/g, '\n').trim();
   return t.length > max ? t.slice(0, max) + '…' : t;
 }
 
