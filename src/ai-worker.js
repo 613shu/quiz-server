@@ -21,6 +21,11 @@ const BATCH = 20;
 const GAP_MS = 300;
 const RETRY_AFTER_MS = 30 * 60e3;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// שמות של קטגוריות שבוטלו – כפי שהופיעו ביומן ("עדכן/ה קטגוריות: אסמכתאות")
+const OLD_NAMES = new Set(['שגרירות', 'אסמכתאות']);
+// דוגמאות מהצוות: רק החלטות שהתקבלו אחרי שינוי הקטגוריות (לפני זה הרשימה הייתה אחרת)
+const EXAMPLES_SINCE = '2026-11-16T21:00:00Z';
+const EXAMPLES_PER_CAT = 2, EXAMPLES_MAX = 16, EXAMPLE_CHARS = 300, EXAMPLES_TTL = 30 * 60e3;
 
 const labelsOf = t => new Set(t.raw.flatMap(m => [...m.labels]));
 const catsOf = labels => [...labels].filter(l => l.startsWith('KOH/cat/')).map(l => l.slice(8));
@@ -112,7 +117,7 @@ class AiWorker {
     if (!kind) return;
     const msgs = this.customerMsgs(t);
     const first = msgs[0], last = msgs[msgs.length - 1];
-    const res = await ai.classify(this.textFor(t).text);
+    const res = await ai.classify(this.textFor(t).text, { examples: this.staffExamples() });
     if (!res.ok) { this.failedAt.set(t.id, Date.now()); return; }
     this.failedAt.delete(t.id);
     const newCats = res.cats.filter(k => k !== 'general').map(k => `KOH/cat/${k}`);
@@ -137,6 +142,55 @@ class AiWorker {
     });
   }
 
+  // אירוע "עדכון קטגוריות" האחרון של הצוות בפניה (מהיומן), או null
+  catLogs() {
+    const map = new Map();
+    for (const ev of [...(this.e.oldLog || []), ...(this.e.log || [])]) if (ev.action === 'categories' && ev.t) map.set(ev.t, ev);
+    return map;
+  }
+  lastCatLog(t, logs) {
+    let last = null;
+    for (const id of t.ids || [t.id]) { const ev = logs.get(id); if (ev && (!last || ev.at > last.at)) last = ev; }
+    return last;
+  }
+
+  // קטגוריה שה-AI צריך לקבוע מחדש למרות שאינה שלו:
+  // (א) הצוות בחר בזמנו קטגוריה שבוטלה ("שגרירות", "אסמכתאות") – היא הומרה אוטומטית, ולא תמיד נכון.
+  // (ב) קטגוריה בלי שום החלטה של הצוות ובלי AI (ניחוש מילות מפתח בייבוא) – רק בירור/שיוך, שאליהן אוחדו הישנות.
+  stale(t, logs) {
+    const labels = labelsOf(t), cats = catsOf(labels);
+    if (!cats.length) return false;
+    const ev = this.lastCatLog(t, logs);
+    if (ev) return String(ev.text || '').replace(/^.*?:\s*/, '').split(/,\s*/).some(n => OLD_NAMES.has(n.trim()));
+    if (labels.has(MANUAL_LABEL) || labels.has(AI_LABEL)) return false;
+    return cats.every(k => k === 'inquiry' || k === 'assign');
+  }
+
+  // דוגמאות מהחלטות ידניות של הצוות (אחרי EXAMPLES_SINCE), מותממות ומקוצרות. מתעדכן כל חצי שעה.
+  staffExamples() {
+    if (this.exCache && Date.now() - this.exCache.at < EXAMPLES_TTL) return this.exCache.list;
+    const list = [];
+    try {
+      const logs = this.catLogs(), perCat = new Map();
+      const cands = [];
+      for (const t of this.e.threads().values()) {
+        const ev = this.lastCatLog(t, logs);
+        if (!ev || ev.at < EXAMPLES_SINCE || this.stale(t, logs) || !this.customerMsgs(t).length) continue;
+        const cats = catsOf(labelsOf(t)).filter(k => ai.KEYS.includes(k));
+        cands.push({ t, at: ev.at, cats: cats.length ? cats : ['general'] });
+      }
+      cands.sort((a, b) => b.at.localeCompare(a.at));
+      for (const c of cands) {
+        if (list.length >= EXAMPLES_MAX) break;
+        if (c.cats.some(k => (perCat.get(k) || 0) >= EXAMPLES_PER_CAT)) continue;
+        c.cats.forEach(k => perCat.set(k, (perCat.get(k) || 0) + 1));
+        list.push({ text: this.textFor(c.t).text.slice(0, EXAMPLE_CHARS), cats: c.cats });
+      }
+    } catch (e) { console.error('[ai] examples:', e.message); }
+    this.exCache = { at: Date.now(), list };
+    return list;
+  }
+
   // קטגוריות שאוחדו (config.MERGED_CATEGORIES): KOH/cat/ambassador → KOH/cat/assign, KOH/cat/proof → KOH/cat/inquiry
   async migrateCategories() {
     const map = config.MERGED_CATEGORIES || {};
@@ -158,12 +212,16 @@ class AiWorker {
 
   // סיווג מחדש של כל מה שה-AI סיווג (למשל אחרי שיפור ההסברים): מוחק את תוויות ה-AI
   // מפניות שהצוות לא תיקן ידנית (בלי KOH/cat-manual), והעובד מסווג אותן שוב.
+  // וגם פניות "מיושנות" (stale): קטגוריה ידנית שבוטלה / ניחוש מילות מפתח – מוחקים גם את הקטגוריה והסימון הידני.
   async resetAi() {
     const uids = new Set(), labelSet = new Set([AI_LABEL, SEEN_LABEL]);
     let threads = 0;
+    const logs = this.catLogs();
+    let stale = 0;
     for (const t of this.e.threads().values()) {
       const labels = labelsOf(t);
-      if (!labels.has(AI_LABEL) || labels.has(MANUAL_LABEL)) continue;
+      if (this.stale(t, logs)) { stale++; labelSet.add(MANUAL_LABEL); }
+      else if (!labels.has(AI_LABEL) || labels.has(MANUAL_LABEL)) continue;
       threads++;
       t.uids.forEach(u => uids.add(u));
       catsOf(labels).forEach(k => labelSet.add(`KOH/cat/${k}`));
@@ -172,9 +230,10 @@ class AiWorker {
     for (let i = 0; i < list.length; i += 200) await this.e.p.modifyLabels(list.slice(i, i + 200), [], remove);
     for (const uid of list) { const m = this.e.p.messages.get(uid); if (m) remove.forEach(l => m.labels.delete(l)); }
     this.failedAt.clear();
+    this.exCache = null;
     this.e.cache = null;
     this.kick();
-    return { threads };
+    return { threads, stale };
   }
 
   // למסך המנהל: מצב + כמה נשארו

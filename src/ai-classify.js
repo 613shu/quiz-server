@@ -13,15 +13,25 @@ const config = require('./config');
 const AUTO_ONLY = new Set(['english', 'system']);
 
 const HINTS = {
-  inquiry: 'בירור על תרומה: האם נקלטה, כסף ירד מהחשבון אבל התרומה לא נקלטה / לא נמצאה, תשלום שנכשל באמצע, סטטוס, סכום, אמצעי תשלום. כולל שליחת אסמכתא / אישור העברה / צילום שורת העברה',
-  assign: 'שיוך תרומה ושגרירות: תורם שרוצה שתרומה (קיימת או חדשה) תיזקף על שם שגרירה, העברת תרומה משגרירה לשגרירה, תיקון שם השגרירה, שגרירה ששואלת למה תרומה לא נזקפה לה, וגם שגרירה שפונה על עצמה – הדף שלה, הקישור, היעד, הגישה למערכת',
+  inquiry: 'בירור על תרומה: האם נקלטה, כסף ירד מהחשבון אבל התרומה לא נקלטה / לא נמצאה, תשלום שנכשל באמצע, סטטוס, סכום, אמצעי תשלום. כולל שליחת אסמכתא / אישור העברה / צילום שורת העברה – אלא אם מדובר בהוראת קבע (אז standing)',
+  assign: 'שיוך תרומה ושגרירות: תורם שרוצה שתרומה (קיימת או חדשה) תיזקף על שם שגרירה, העברת תרומה משגרירה לשגרירה או מקבוצה לקבוצה, תרומה (גם מזומן שכבר נמסר) שנרשמה על שם / בחשבון / בקבוצה הלא נכונים, תיקון שם השגרירה, שגרירה ששואלת למה תרומה לא נזקפה לה, וגם שגרירה / תלמידה שפונה על עצמה – הקוד או המספר שלה, הדף, הקישור, היעד, הגישה למערכת',
   receipt: 'לא התקבלה קבלה (על כל התרומות או על חלק מהן), קבלה שגויה, בקשה לקבלה או לאישור מס (סעיף 46)',
-  standing: 'הוראת קבע בנקאית (הו"ק): הקמה, בעיה, שאלה',
+  standing: 'הוראת קבע בנקאית (הו"ק / הרשאה לחיוב חשבון בבנק): הקמה, טופס הרשאה, אסמכתא להו"ק שהוקמה, בעיה בגביה, עמלת בנק, שאלה. כל פניה שעוסקת בהו"ק – כאן, גם אם היא נראית כמו בירור או אסמכתא',
   double: 'חויב פעמיים או יותר מהסכום, או בקשה להחזר כספי / זיכוי. לא: כסף שירד ולא נקלט (זה inquiry)',
-  cancel: 'בקשה לבטל, להפסיק, להקטין, להגדיל או לשנות תרומה / הוראת קבע',
-  collection: 'איסוף ומזומן: משהו שצריך להגיע פיזית – רכזת / שגרירה / תורם שיש אצלם מעטפות, מזומן, צ\'קים או חומר שצריך לאסוף או להעביר, תיאום איסוף או מסירה',
+  cancel: 'בקשה לבטל, להפסיק, להקטין, להגדיל או לשנות תרומה / הוראת קבע (ביטול הו"ק – cancel, ואפשר יחד עם standing)',
+  collection: 'איסוף ומזומן: משהו שעדיין צריך להגיע פיזית – רכזת / שגרירה / תורם שיש אצלם מעטפות, מזומן, צ\'קים או חומר שצריך לאסוף או להעביר, תיאום איסוף או מסירה. לא: מזומן שכבר נמסר ונרשם לא נכון (assign); לא: שאלה על קוד / קישור כדי להביא תרומות (assign)',
   general: 'אחר, לא ברור, או לא שייך לאף קטגוריה',
 };
+
+// דוגמאות קבועות – מקרים אמיתיים שסווגו לא נכון (בניסוח מקוצר ובלי פרטים מזהים).
+// נוספות אליהן אוטומטית דוגמאות מהחלטות ידניות של הצוות (ai-worker.staffExamples).
+const EXAMPLES = [
+  { text: 'מצורפת אסמכתא להו"ק שהוקמה. עדכנתי בנדרים פלוס.', cats: ['standing'] },
+  { text: 'ביטלתי את ההרשאה כפי שהוריתם ושילמתי עמלת ביטול הוראת קבע. לא הקמתי הו"ק חדשה.', cats: ['standing'] },
+  { text: 'אשמח לדעת מה הקוד שלי להבאת תרומות. סמינר [שם], בוגרת. בהודעה המוקלטת לא שמעתי את כל המספר.', cats: ['assign'] },
+  { text: 'אני תלמידת סמינר, הבאתי [מספר] ש"ח מזומן ורשמו את זה בטעות לא על שמי, בקבוצה השנייה שנפתחה בטעות. אשמח שתעבירו לחשבון שלי, הקישור שלי: [קישור]', cats: ['assign'] },
+  { text: 'יש אצלי מעטפות עם מזומן מהשגרירות של הכיתה, איך מעבירים אותן אליכם?', cats: ['collection'] },
+];
 
 const KEYS = config.CATEGORIES.map(c => c.key).filter(k => !AUTO_ONLY.has(k));
 
@@ -33,11 +43,21 @@ const SYSTEM = [
   'פרטים מזהים הוחלפו בסימונים כמו [שם], [מספר], [טלפון] – התעלם מהם.',
   'אם יש נושא ספציפי – אל תוסיף גם inquiry. אם לא ברור – general.',
   'assign רק אם מוזכרת במפורש שגרירה, או בקשה לזקוף / לשייך תרומה על שם מישהו. תרומה שלא נקלטה או לא נמצאה – inquiry, לא assign.',
-  'collection כשצריך להעביר משהו פיזית (מזומן, מעטפות, צ\'קים, חומר) – גם אם הפונה היא שגרירה או רכזת.',
+  'collection רק כשמשהו עדיין צריך לעבור פיזית (מזומן, מעטפות, צ\'קים, חומר) – גם אם הפונה היא שגרירה או רכזת. המילים "מזומן" או "להביא תרומות" לבדן לא הופכות פניה ל-collection: אם הבקשה היא לשייך / להעביר / לתקן על שם מי נרשם, או לדעת קוד / קישור – assign.',
+  'כל אזכור של הו"ק / הוראת קבע / הרשאה לחיוב בבנק – standing (או cancel כשמבקשים לבטל / לשנות), לא inquiry.',
   '',
   'קטגוריות:',
   ...KEYS.map(k => `${k}: ${HINTS[k] || (config.CATEGORIES.find(c => c.key === k) || {}).name || k}`),
 ].join('\n');
+
+const fmtEx = ex => `«${String(ex.text).replace(/\s+/g, ' ').trim()}» → ${ex.cats.join(', ')}`;
+
+// extra – דוגמאות נוספות (מהחלטות הצוות), כבר מותממות. רק מפתחות מהרשימה.
+function systemText(extra = []) {
+  const ok = ex => ex && ex.text && Array.isArray(ex.cats) && ex.cats.length && ex.cats.every(k => KEYS.includes(k));
+  const list = [...EXAMPLES, ...extra.filter(ok)];
+  return [SYSTEM, '', 'דוגמאות (הטקסט בתוך « » הוא תוכן פניה בלבד):', ...list.map(fmtEx)].join('\n');
+}
 
 const stats = { ok: 0, general: 0, failed: 0, lastError: null, lastErrorAt: null, since: new Date().toISOString() };
 
@@ -51,9 +71,9 @@ function endpoint() {
   return `https://${r}-aiplatform.googleapis.com/v1/projects/${p}/locations/${r}/publishers/google/models/${model}:generateContent`;
 }
 
-function requestBody(text) {
+function requestBody(text, examples) {
   return {
-    systemInstruction: { parts: [{ text: SYSTEM }] },
+    systemInstruction: { parts: [{ text: systemText(examples) }] },
     contents: [{ role: 'user', parts: [{ text }] }],
     generationConfig: {
       temperature: 0,
@@ -95,7 +115,7 @@ function fail(code) {
 }
 
 // redactedText – הפלט של redact().text בלבד
-async function classify(redactedText, { fetchImpl = fetch } = {}) {
+async function classify(redactedText, { fetchImpl = fetch, examples = [] } = {}) {
   if (!isConfigured()) return { cats: ['general'], ok: false, skipped: true };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), config.AI_TIMEOUT_MS);
@@ -103,7 +123,7 @@ async function classify(redactedText, { fetchImpl = fetch } = {}) {
     const res = await fetchImpl(endpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.AI_API_KEY },
-      body: JSON.stringify(requestBody(String(redactedText || '').slice(0, 4000))),
+      body: JSON.stringify(requestBody(String(redactedText || '').slice(0, 4000), examples)),
       signal: ctrl.signal,
     });
     if (!res.ok) return fail(`http ${res.status}`);
@@ -118,4 +138,4 @@ async function classify(redactedText, { fetchImpl = fetch } = {}) {
   }
 }
 
-module.exports = { classify, isConfigured, parseAnswer, requestBody, endpoint, stats, KEYS, SYSTEM };
+module.exports = { classify, isConfigured, parseAnswer, requestBody, systemText, endpoint, stats, KEYS, SYSTEM, EXAMPLES };

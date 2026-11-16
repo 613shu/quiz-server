@@ -183,3 +183,38 @@ test('מילות מפתח: איסוף ומזומן, ושגרירה → שיוך'
   assert.deepStrictEqual(categorize('יש אצלי מעטפות עם מזומן, מתי אפשר לאסוף?'), ['collection']);
   assert.deepStrictEqual(categorize('אני שגרירה והקישור שלי לא עובד'), ['assign']);
 });
+
+test('reclassify: קטגוריה ידנית שבוטלה וניחוש מילות מפתח חוזרים ל-AI; החלטת צוות רגילה נשארת', async () => {
+  const p = new FakeProvider();
+  const e = new Engine(p, new Users());
+  const w = new AiWorker(e); w.kick = () => {};
+  await p.start();
+  const [a, b, c] = [...e.threads().values()];
+  // a: הצוות סימן בעבר "אסמכתאות" (הומר לבירור + סימון ידני)
+  await p.modifyLabels(a.uids, ['KOH/cat/inquiry', 'KOH/cat-manual'], []);
+  e.log.push({ t: a.id, at: '2026-10-11T10:00:00Z', user: 'x', action: 'categories', text: 'עדכן/ה קטגוריות: אסמכתאות' });
+  // b: ניחוש מילות מפתח מייבוא – בלי יומן ובלי AI
+  await p.modifyLabels(b.uids, ['KOH/cat/inquiry'], []);
+  // c: החלטת צוות בקטגוריה קיימת – נשארת, ומשמשת כדוגמה
+  await p.modifyLabels(c.uids, ['KOH/cat/receipt', 'KOH/cat-manual'], []);
+  e.log.push({ t: c.id, at: '2026-11-17T08:00:00Z', user: 'x', action: 'categories', text: 'עדכן/ה קטגוריות: לא קיבלתי קבלה' });
+  e.cache = null;
+  const r = await w.resetAi();
+  assert.strictEqual(r.stale, 2);
+  e.cache = null;
+  const t = id => e.threads().get(id);
+  assert.strictEqual(w.need(t(a.id)), 'first');
+  assert.strictEqual(w.need(t(b.id)), 'first');
+  assert.strictEqual(w.need(t(c.id)), null);
+  assert.deepStrictEqual(t(c.id).categories, ['receipt']);
+  const ex = w.staffExamples();
+  assert.strictEqual(ex.length, 1);
+  assert.deepStrictEqual(ex[0].cats, ['receipt']);
+  // הדוגמאות נשלחות בהנחיית המערכת
+  let sys = '';
+  const save = global.fetch;
+  global.fetch = async (url, opts) => { sys = JSON.parse(opts.body).systemInstruction.parts[0].text; return save(url, opts); };
+  await w.run();
+  global.fetch = save;
+  assert.ok(sys.includes('→ receipt') && sys.includes('→ standing'));
+});
