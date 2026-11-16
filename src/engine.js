@@ -2,7 +2,8 @@
 // מצב כל פניה נשמר כתוויות בג׳ימייל (KOH/...), ולכן שורד הפעלה מחדש של השרת.
 const config = require('./config');
 const { categorize, isEnglish } = require('./categorize');
-const { extractForwardedSender, extractAttachment } = require('./mail/parse');
+const { extractForwardedSender, attachmentList } = require('./mail/parse');
+const attcache = require('./attcache');
 const { splitHistory, bodyKey } = require('./mail/history');
 const signature = require('./mail/signature');
 
@@ -1058,8 +1059,11 @@ class Engine {
     if (rec.system && !n) throw new AppError(404, 'הקובץ לא נמצא');
     const t = [...this.threads().values()].find(x => n ? x.ids.includes(n.t) : x.uids.includes(uid));
     if (!t || !this.canSee(t, user) || (n && !this.noteVisible(n, t, user))) throw new AppError(403, 'אין גישה לקובץ הזה');
-    const raw = await this.p.getRaw(uid);
-    const a = raw && await extractAttachment(raw, idx);
+    const list = await attcache.get(uid, async u => {
+      const raw = await this.p.getRaw(u);
+      return raw ? attachmentList(raw) : [];
+    });
+    const a = list[idx];
     if (!a) throw new AppError(404, 'הקובץ לא נמצא');
     return a;
   }

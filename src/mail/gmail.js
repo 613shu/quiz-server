@@ -151,7 +151,7 @@ class GmailProvider extends EventEmitter {
     while (want.length) {
       const batch = [];
       let bytes = 0;
-      while (want.length && batch.length < 40 && (!batch.length || bytes + want[0].size <= 25 * 1024 * 1024)) {
+      while (want.length && batch.length < 40 && (!batch.length || bytes + want[0].size <= 8 * 1024 * 1024)) {
         bytes += want[0].size; batch.push(want.shift().uid);
       }
       const got = [];

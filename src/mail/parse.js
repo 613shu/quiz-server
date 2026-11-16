@@ -119,10 +119,16 @@ async function extractAttachment(raw, index) {
   return { name: a.filename || `קובץ-${index + 1}`, type: a.contentType, content: a.content };
 }
 
+// כל הקבצים במייל, מפוענחים, באותו סדר של index (לשמירה ב-attcache)
+async function attachmentList(raw) {
+  const p = await simpleParser(raw);
+  return fileParts(p).map((a, i) => ({ name: a.filename || `קובץ-${i + 1}`, type: a.contentType, content: a.content }));
+}
+
 async function allAttachments(raw) {
   const p = await simpleParser(raw);
   return fileParts(p)
     .map(a => ({ filename: a.filename, contentType: a.contentType, content: a.content }));
 }
 
-module.exports = { parseRaw, splitQuoted, extractForwardedSender, extractAttachment, allAttachments };
+module.exports = { parseRaw, splitQuoted, extractForwardedSender, extractAttachment, attachmentList, allAttachments };
