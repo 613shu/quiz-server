@@ -424,6 +424,7 @@ class Engine {
       status, mgr, assignee, returned, waiting, assigned, tracking, fromTracking, trackDefault, categories,
       bounced: bounced ? { to: bounced.to, reason: bounced.reason, at: bounced.at, seen: last.labels.has(L.bounceSeen) } : null,
       bounceOrphan: !!(first.bounce && !incoming.some(m => !m.bounce)),
+      hadBounce: bounces.length > 0,
       // מייל שחזר – הפניה עולה לראש הרשימה לפי זמן החזרה
       lastIncoming: bounced && bounced.at > lastIn.date ? bounced.at : lastIn.date,
       lastActivity: pend.length ? pend[pend.length - 1].date : last.date,
@@ -736,6 +737,45 @@ class Engine {
       this.addLog(id, user, 'handled', t.status === 'escalated' ? `${what} (הוסרה מתיקיית המנהל)` : what);
       return this.refresh(id, user);
     });
+  }
+
+  // ---------- תיקון חד-פעמי: בעלות שגויה מאיחוד ההודעות החוזרות (לפני 16.11) ----------
+  // עד התיקון, כל ההודעות החוזרות התאחדו לפניה אחת, וגררו איתן (דרך השרשור של Gmail) את המיילים המקוריים שחזרו.
+  // מי שלקח/סימן את הפניה הזו קיבל/ה תווית KOH/by על כל המיילים, ותוויות הבעלים הקודמות נמחקו.
+  // כאן מאתרים פניות שחזר בהן מייל, שרשומות על חבר/ת צוות שמעולם לא שלח/ה בהן מייל, לא פעל/ה בהן,
+  // ולא הועברו אליו/ה במכוון – ומסירים את תווית הבעלים. הבעלות חוזרת אוטומטית למי ששלח/ה בפועל את המייל האחרון.
+  ownerFixCandidates() {
+    const out = [];
+    for (const t of this.threads().values()) {
+      if (!t.hadBounce) continue;
+      const labels = new Set(t.raw.flatMap(m => [...m.labels]));
+      if (labels.has(L.assigned)) continue;
+      const owners = this.allKeys().filter(k => labels.has(L.by(k)));
+      if (!owners.length) continue;
+      const authors = t.raw.filter(m => this.isOut(m)).map(m => m.author).filter(Boolean);
+      if (!authors.length) continue;
+      const ids = new Set(t.ids);
+      const logs = this.log.filter(e => ids.has(e.t));
+      const wrong = owners.filter(k => !authors.includes(k) && !logs.some(e => e.user === k) && !logs.some(e => e.action === 'assign' || e.action === 'push'));
+      if (wrong.length !== owners.length) continue;
+      const to = [...authors].reverse().find(k => this.users.isActive(k)) || null;
+      out.push({ id: t.id, subject: t.subject, customer: t.fromEmail, status: t.status, from: owners.map(k => this.userName(k)).join(', '), to: to ? this.userName(to) : '(כללי – אין שולח/ת פעיל/ה)', lastSent: t.raw.filter(m => this.isOut(m)).pop().date });
+    }
+    return out.sort((a, b) => b.lastSent.localeCompare(a.lastSent));
+  }
+
+  async applyOwnerFix(user) {
+    const list = this.ownerFixCandidates();
+    for (const c of list) {
+      await this.locked(c.id, async () => {
+        const t = this.get(c.id);
+        await this.p.modifyLabels(t.uids, [], this.byLabels());
+        this.addLog(c.id, user, 'owner-fix', `תיקון שיוך: הפניה הייתה רשומה בטעות על ${c.from} (איחוד הודעות חוזרות לפני 16.11) – חזרה ל${c.to}`);
+      });
+    }
+    this.cache = null;
+    await this.saveStateNow();
+    return { fixed: list.length, items: list };
   }
 
   // "ראיתי" על מייל שחזר: ההודעה יורדת מראש המסך (גם אצל המנהל), הפניה נשארת בטיפול

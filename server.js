@@ -122,6 +122,9 @@ app.post('/api/inquiries/:id/push/seen', h(req => engine.ackPush(req.params.id, 
 app.delete('/api/inquiries/:id/notes/:noteId', h(req => engine.deleteNote(req.params.id, req.params.noteId, req.user)));
 
 // ---------- סטטיסטיקה וניהול צוות (מנהל) ----------
+// תיקון חד-פעמי של בעלות שגויה (ראו engine.ownerFixCandidates). GET = תצוגה בלבד, POST = ביצוע
+app.get('/api/admin/owner-fix', managerOnly, h(() => { const items = engine.ownerFixCandidates(); return { count: items.length, items }; }));
+app.post('/api/admin/owner-fix', managerOnly, h(req => engine.applyOwnerFix(req.user)));
 app.get('/api/stats', managerOnly, h(req => engine.stats(req.query, req.user)));
 
 const needSave = () => {
