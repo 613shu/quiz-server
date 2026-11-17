@@ -622,7 +622,7 @@ class Engine {
       if (t.status === 'new') c.general++;
       const pushed = this.openPushes(t, me).length > 0;
       if (pushed) c.pushed++;
-      if (pushed && t.status !== 'in_progress') c.mine++;
+      if (pushed && !(t.status === 'in_progress' && t.assignee === me)) c.mine++;
       if (t.status === 'in_progress' && t.assignee === me) {
         c.mine++;
         if (t.returned || t.assigned || (t.bounced && !t.bounced.seen)) c.mineReturned++;
@@ -1063,7 +1063,7 @@ class Engine {
     });
   }
 
-  // ---------- הקפצת הודעה מהמנהל למזכירה ----------
+  // ---------- הקפצת הודעה מהמנהל למזכירה (או למנהל אחר) ----------
   // ההודעה מופיעה אצלה בראש הפתוחות עם מסגרת בולטת, עד שהיא מאשרת שקראה (או עונה / מסמנת כטופל).
   // אם הפניה לא אצלה (אצל המנהל, חדשה, אצל מישהי אחרת) – היא עוברת אליה.
   pushToMember(id, user, toKey, text) {
@@ -1074,11 +1074,13 @@ class Engine {
       const t = this.getEdit(id, user);
       const n = this.makeNote(t.id, user, text, 'push', true);
       n.to = toKey;
-      const hers = t.assignee === toKey && ['in_progress', 'handled'].includes(t.status);
+      // הקפצה למנהל אחר – רק התראה: הפניה נשארת אצל מי שהיא אצלו (הוא רואה אותה בראש "הפניות שלי")
+      const toMgr = this.isManager({ key: toKey });
+      const hers = toMgr || (t.assignee === toKey && ['in_progress', 'handled'].includes(t.status));
       if (!hers) await this.moveTo(t, user, toKey);
       this.notes.push(n);
       await this.saveStateNow();
-      this.addLog(id, user, 'push', `הקפיץ/ה הודעה אל ${this.userName(toKey)}` + (hers ? '' : ' (הפניה עברה אליה)'));
+      this.addLog(id, user, 'push', `הקפיץ/ה הודעה אל ${this.userName(toKey)}` + (toMgr ? ' (מנהל)' : hers ? '' : ' (הפניה עברה אליה)'));
       return this.refresh(id, user);
     });
   }

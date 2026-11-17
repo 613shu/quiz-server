@@ -864,6 +864,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .push-btn:disabled { opacity: .45; cursor: default; filter: none; }
 .push-btn .i { width: 14px; height: 14px; }
 .pb-note { font-size: 11.5px; color: var(--mgr-ink); opacity: .8; margin-top: 6px; }
+.pb-mgr-btn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+  color: var(--muted); background: transparent; border: 1.5px dashed var(--line); transition: color .12s, border-color .12s; }
+.pb-mgr-btn:hover, .pb-mgr-btn.on { color: var(--mgr-ink); border-color: rgba(177,140,255,.55); }
+.pb-mgr-btn .i { width: 13px; height: 13px; }
+.pb-mgr-btn .chev { transition: transform .15s; }
+.pb-mgr-btn.on .chev { transform: rotate(180deg); }
+.pb-mgrs { align-items: center; padding-top: 8px; border-top: 1px dashed rgba(177,140,255,.28); }
+.pb-lbl { font-size: 11.5px; color: var(--muted); font-weight: 600; }
 
 /* ============================================================
    סיווג קטגוריות – כפתור אחד שפותח/סוגר

@@ -75,7 +75,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 
 const S = {
-  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, catsOpen: false, sideCatsOpen: ls.get('koh.sideCats', false),
+  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, pushMgrOpen: {}, catsOpen: false, sideCatsOpen: ls.get('koh.sideCats', false),
   items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, quoteBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
@@ -581,20 +581,31 @@ function pushDefault(d) {
   return esc_ && ok(esc_.userKey) ? esc_.userKey : '';
 }
 const pushTargets = () => (S.cfg.team || []).filter(u => !u.deleted && u.key !== S.me.key && u.role !== 'manager');
+// מנהלים אחרים (חוץ ממני) – מאחורי כפתור נפרד, כדי לא להעמיס
+const pushMgrTargets = () => (S.cfg.team || []).filter(u => !u.deleted && u.key !== S.me.key && u.role === 'manager');
 
-// מנהל: במקום הערה פנימית – הקפצת הודעה למזכירה
+// מנהל: במקום הערה פנימית – הקפצת הודעה למזכירה (או למנהל אחר)
 function pushBox(d) {
   const to = S.pushTo[d.id] ?? pushDefault(d);
-  const list = pushTargets();
+  const list = pushTargets(), mgrs = pushMgrTargets();
+  const toMgr = !!to && mgrs.some(u => u.key === to);
+  const mgrOpen = toMgr || !!S.pushMgrOpen[d.id];
+  const chip = (u, mgr) => `<button type="button" role="radio" aria-checked="${u.key === to}" class="pb-who ${u.key === to ? 'on' : ''}" data-push-to="${esc(u.key)}" style="--c:${teamColor(u.key)}">${avatar(u.name, teamColor(u.key), 'xs team')}${esc(u.name)}${u.key === d.assignee ? `<i>${mgr ? 'אצלו' : 'אצלה'}</i>` : ''}</button>`;
+  const note = !to ? ''
+    : toMgr ? `<div class="pb-note">הפניה נשארת במקומה · תופיע אצל ${esc(teamName(to))} בראש "הפניות שלי"</div>`
+    : to !== d.assignee && d.status !== 'handled' ? `<div class="pb-note">הפניה תעבור לטיפול של ${esc(teamName(to))}</div>`
+    : to !== d.assignee ? `<div class="pb-note">הפניה תיפתח מחדש אצל ${esc(teamName(to))}</div>` : '';
   return `<div class="push-box">
-    <div class="pb-head"><span class="pb-ic">${ic('bell')}</span><span class="pb-title">הקפץ הודעה זו למזכירה</span>
-      <span class="pb-sub">תופיע אצלה בראש הפתוחות, מודגשת, עם השם שלך · לא נשלחת לתורם</span></div>
-    <div class="pb-to" role="radiogroup" aria-label="למי להקפיץ">${list.map(u => `<button type="button" role="radio" aria-checked="${u.key === to}" class="pb-who ${u.key === to ? 'on' : ''}" data-push-to="${esc(u.key)}" style="--c:${teamColor(u.key)}">${avatar(u.name, teamColor(u.key), 'xs team')}${esc(u.name)}${u.key === d.assignee ? '<i>אצלה</i>' : ''}</button>`).join('') || '<span class="muted">אין מזכירות פעילות</span>'}</div>
+    <div class="pb-head"><span class="pb-ic">${ic('bell')}</span><span class="pb-title">${toMgr ? 'הקפץ הודעה זו למנהל' : 'הקפץ הודעה זו למזכירה'}</span>
+      <span class="pb-sub">${toMgr ? 'תופיע אצלו' : 'תופיע אצלה'} בראש הפתוחות, מודגשת, עם השם שלך · לא נשלחת לתורם</span></div>
+    <div class="pb-to" role="radiogroup" aria-label="למי להקפיץ">${list.map(u => chip(u, false)).join('') || '<span class="muted">אין מזכירות פעילות</span>'}
+      ${mgrs.length ? `<button type="button" class="pb-mgr-btn ${mgrOpen ? 'on' : ''}" data-push-mgr aria-expanded="${mgrOpen}">${ic('user')}הקפצה למנהל${ic('chev', 'chev')}</button>` : ''}</div>
+    ${mgrs.length && mgrOpen ? `<div class="pb-to pb-mgrs" role="radiogroup" aria-label="הקפצה למנהל"><span class="pb-lbl">מנהלים:</span>${mgrs.map(u => chip(u, true)).join('')}</div>` : ''}
     <div class="nb-row">
-      <textarea id="note-text" rows="1" maxlength="2000" placeholder="הוספת טקסט (לא חובה) – מה חשוב שתדע…">${esc(S.noteDraft[d.id] || '')}</textarea>
+      <textarea id="note-text" rows="1" maxlength="2000" placeholder="הוספת טקסט (לא חובה) – ${toMgr ? 'מה חשוב שיֵדע' : 'מה חשוב שתדע'}…">${esc(S.noteDraft[d.id] || '')}</textarea>
       <button type="button" class="btn sm push-btn" id="push-send" ${to ? '' : 'disabled'}>${ic('send')} הקפצה</button>
     </div>
-    ${to && to !== d.assignee && d.status !== 'handled' ? `<div class="pb-note">הפניה תעבור לטיפול של ${esc(teamName(to))}</div>` : to && to !== d.assignee ? `<div class="pb-note">הפניה תיפתח מחדש אצל ${esc(teamName(to))}</div>` : ''}
+    ${note}
   </div>`;
 }
 
@@ -1157,6 +1168,13 @@ function bindApp() {
     if (e.target.closest('[data-push-ack]')) return ackPush(e.target.closest('[data-push-ack]'));
     const pt = e.target.closest('[data-push-to]');
     if (pt) { S.pushTo[S.detail.id] = pt.dataset.pushTo; renderDetail(); return; }
+    if (e.target.closest('[data-push-mgr]')) {
+      const id = S.detail.id, open = !(S.pushMgrOpen[id] || pushMgrTargets().some(u => u.key === S.pushTo[id]));
+      S.pushMgrOpen[id] = open;
+      // סגירה כשנבחר מנהל – חוזרים לברירת המחדל (מזכירה)
+      if (!open && pushMgrTargets().some(u => u.key === S.pushTo[id])) delete S.pushTo[id];
+      renderDetail(); return;
+    }
     if (e.target.closest('#cats-btn')) { S.catsOpen = !S.catsOpen; $('#d-cats').classList.toggle('open', S.catsOpen); $('#cats-btn').setAttribute('aria-expanded', S.catsOpen); return; }
     if (e.target.closest('#send-track-btn')) return sendReply(true);
     const nd = e.target.closest('[data-note-del]');
