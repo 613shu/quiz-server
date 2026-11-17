@@ -742,8 +742,9 @@ class Engine {
   // ---------- תיקון חד-פעמי: בעלות שגויה מאיחוד ההודעות החוזרות (לפני 16.11) ----------
   // עד התיקון, כל ההודעות החוזרות התאחדו לפניה אחת, וגררו איתן (דרך השרשור של Gmail) את המיילים המקוריים שחזרו.
   // מי שלקח/סימן את הפניה הזו קיבל/ה תווית KOH/by על כל המיילים, ותוויות הבעלים הקודמות נמחקו.
-  // כאן מאתרים פניות שחזר בהן מייל, שרשומות על חבר/ת צוות שמעולם לא שלח/ה בהן מייל, לא פעל/ה בהן,
-  // ולא הועברו אליו/ה במכוון – ומסירים את תווית הבעלים. הבעלות חוזרת אוטומטית למי ששלח/ה בפועל את המייל האחרון.
+  // כאן מאתרים פניות שחזר בהן מייל, שרשומות על מי שלא שלח/ה את המייל האחרון ולא פעל/ה בפניה מאז
+  // (לא לקח/ה, לא סימן/ה, לא הועברה אליו/ה) – ומסירים את תווית הבעלים.
+  // הבעלות חוזרת אוטומטית למי ששלח/ה את המייל האחרון (גם כשכמה מזכירות ענו בפניה).
   ownerFixCandidates() {
     const out = [];
     for (const t of this.threads().values()) {
@@ -752,12 +753,17 @@ class Engine {
       if (labels.has(L.assigned)) continue;
       const owners = this.allKeys().filter(k => labels.has(L.by(k)));
       if (!owners.length) continue;
-      const authors = t.raw.filter(m => this.isOut(m)).map(m => m.author).filter(Boolean);
-      if (!authors.length) continue;
+      const outs = t.raw.filter(m => this.isOut(m) && m.author);
+      if (!outs.length) continue;
+      const authors = outs.map(m => m.author), lastAuthor = authors[authors.length - 1];
+      // מאז המייל האחרון שנשלח: מי לקח/ה, קיבל/ה העברה או פעל/ה בפניה (פעולה כזו = בעלות אמיתית)
+      const since = Date.parse(outs[outs.length - 1].date) - 60e3;
       const ids = new Set(t.ids);
-      const logs = this.log.filter(e => ids.has(e.t));
-      const wrong = owners.filter(k => !authors.includes(k) && !logs.some(e => e.user === k) && !logs.some(e => e.action === 'assign' || e.action === 'push'));
-      if (wrong.length !== owners.length) continue;
+      const recent = [...this.oldLog, ...this.log].filter(e => ids.has(e.t) && Date.parse(e.at) >= since);
+      const handedOver = recent.some(e => e.action === 'assign' || e.action === 'push');
+      // תווית שגויה: לא של מי ששלח/ה את המייל האחרון, ואין לה שום פעולה מאז המייל הזה
+      const wrong = owners.filter(k => k !== lastAuthor && !handedOver && !recent.some(e => e.user === k));
+      if (!wrong.length || wrong.length !== owners.length) continue;
       const to = [...authors].reverse().find(k => this.users.isActive(k)) || null;
       out.push({ id: t.id, subject: t.subject, customer: t.fromEmail, status: t.status, from: owners.map(k => this.userName(k)).join(', '), to: to ? this.userName(to) : '(כללי – אין שולח/ת פעיל/ה)', lastSent: t.raw.filter(m => this.isOut(m)).pop().date });
     }
