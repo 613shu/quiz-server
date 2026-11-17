@@ -745,29 +745,31 @@ class Engine {
   // כאן מאתרים פניות שחזר בהן מייל, שרשומות על מי שלא שלח/ה את המייל האחרון ולא פעל/ה בפניה מאז
   // (לא לקח/ה, לא סימן/ה, לא הועברה אליו/ה) – ומסירים את תווית הבעלים.
   // הבעלות חוזרת אוטומטית למי ששלח/ה את המייל האחרון (גם כשכמה מזכירות ענו בפניה).
-  ownerFixCandidates() {
-    const out = [];
+  ownerFixCandidates(debug = false) {
+    const out = [], skipped = [];
     for (const t of this.threads().values()) {
       if (!t.hadBounce) continue;
       const labels = new Set(t.raw.flatMap(m => [...m.labels]));
-      if (labels.has(L.assigned)) continue;
       const owners = this.allKeys().filter(k => labels.has(L.by(k)));
-      if (!owners.length) continue;
       const outs = t.raw.filter(m => this.isOut(m) && m.author);
-      if (!outs.length) continue;
       const authors = outs.map(m => m.author), lastAuthor = authors[authors.length - 1];
-      // מאז המייל האחרון שנשלח: מי לקח/ה, קיבל/ה העברה או פעל/ה בפניה (פעולה כזו = בעלות אמיתית)
-      const since = Date.parse(outs[outs.length - 1].date) - 60e3;
       const ids = new Set(t.ids);
+      const since = outs.length ? Date.parse(outs[outs.length - 1].date) - 60e3 : 0;
       const recent = [...this.oldLog, ...this.log].filter(e => ids.has(e.t) && Date.parse(e.at) >= since);
+      const skip = why => { if (debug && t.assignee && t.assignee !== lastAuthor) skipped.push({ id: t.id, customer: t.fromEmail, subject: t.subject, assignee: t.assignee, lastAuthor, owners, assignedLabel: labels.has(L.assigned), free: labels.has(L.free), why, ids: t.ids, recent: recent.map(e => `${e.at} ${e.user} ${e.action} ${e.t}`) }); };
+      if (labels.has(L.assigned)) { skip('assigned-label'); continue; }
+      if (!owners.length) { skip('no-owner-label'); continue; }
+      if (!outs.length) { skip('no-authored-out'); continue; }
+      // מאז המייל האחרון שנשלח: מי לקח/ה, קיבל/ה העברה או פעל/ה בפניה (פעולה כזו = בעלות אמיתית)
       const handedOver = recent.some(e => e.action === 'assign' || e.action === 'push');
       // תווית שגויה: לא של מי ששלח/ה את המייל האחרון, ואין לה שום פעולה מאז המייל הזה
       const wrong = owners.filter(k => k !== lastAuthor && !handedOver && !recent.some(e => e.user === k));
-      if (!wrong.length || wrong.length !== owners.length) continue;
+      if (!wrong.length || wrong.length !== owners.length) { skip(handedOver ? 'handed-over' : 'owner-acted-or-mixed'); continue; }
       const to = [...authors].reverse().find(k => this.users.isActive(k)) || null;
-      out.push({ id: t.id, subject: t.subject, customer: t.fromEmail, status: t.status, from: owners.map(k => this.userName(k)).join(', '), to: to ? this.userName(to) : '(כללי – אין שולח/ת פעיל/ה)', lastSent: t.raw.filter(m => this.isOut(m)).pop().date });
+      out.push({ id: t.id, subject: t.subject, customer: t.fromEmail, status: t.status, from: owners.map(k => this.userName(k)).join(', '), to: to ? this.userName(to) : '(כללי – אין שולח/ת פעיל/ה)', lastSent: outs[outs.length - 1].date });
     }
-    return out.sort((a, b) => b.lastSent.localeCompare(a.lastSent));
+    out.sort((a, b) => b.lastSent.localeCompare(a.lastSent));
+    return debug ? { items: out, skipped } : out;
   }
 
   async applyOwnerFix(user) {

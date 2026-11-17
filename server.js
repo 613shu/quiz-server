@@ -123,7 +123,10 @@ app.delete('/api/inquiries/:id/notes/:noteId', h(req => engine.deleteNote(req.pa
 
 // ---------- סטטיסטיקה וניהול צוות (מנהל) ----------
 // תיקון חד-פעמי של בעלות שגויה (ראו engine.ownerFixCandidates). GET = תצוגה בלבד, POST = ביצוע
-app.get('/api/admin/owner-fix', managerOnly, h(() => { const items = engine.ownerFixCandidates(); return { count: items.length, items }; }));
+app.get('/api/admin/owner-fix', managerOnly, h(req => {
+  if (req.query.debug) { const r = engine.ownerFixCandidates(true); return { count: r.items.length, items: r.items, skippedCount: r.skipped.length, skipped: r.skipped }; }
+  const items = engine.ownerFixCandidates(); return { count: items.length, items };
+}));
 app.post('/api/admin/owner-fix', managerOnly, h(req => engine.applyOwnerFix(req.user)));
 app.get('/api/stats', managerOnly, h(req => engine.stats(req.query, req.user)));
 
