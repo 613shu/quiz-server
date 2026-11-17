@@ -127,6 +127,9 @@ app.get('/api/admin/owner-fix', managerOnly, h(req => {
   if (req.query.debug) { const r = engine.ownerFixCandidates(true); return { count: r.items.length, items: r.items, skippedCount: r.skipped.length, skipped: r.skipped }; }
   const items = engine.ownerFixCandidates(); return { count: items.length, items };
 }));
+// ביצוע מהדפדפן (בלי כלים): /api/admin/owner-fix/apply?confirm=yes
+app.get('/api/admin/owner-fix/apply', managerOnly, h(req => { if (req.query.confirm !== 'yes') return { error: 'כדי לבצע יש להוסיף ?confirm=yes' }; return engine.applyOwnerFix(req.user); }));
+app.get('/api/admin/thread-debug', managerOnly, h(req => engine.threadDebug(req.query.id)));
 app.post('/api/admin/owner-fix', managerOnly, h(req => engine.applyOwnerFix(req.user)));
 app.get('/api/stats', managerOnly, h(req => engine.stats(req.query, req.user)));
 

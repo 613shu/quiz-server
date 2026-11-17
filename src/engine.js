@@ -773,6 +773,23 @@ class Engine {
     return debug ? { items: out, skipped } : out;
   }
 
+  // אבחון: ממה מורכבת פניה מאוחדת ולמה ההודעות שלה התאחדו
+  threadDebug(id) {
+    const t = this.get(id);
+    const tidOf = m => m.threadId ? String(m.threadId) : `u${m.uid}`;
+    const byMid = new Map(t.raw.map(m => [m.messageId, m]));
+    return {
+      id: t.id, subject: t.subject, assignee: t.assignee, status: t.status, threads: t.ids.length, messages: t.raw.length,
+      items: t.raw.map(m => ({
+        uid: m.uid, gmailThread: tidOf(m), date: m.date, out: this.isOut(m), author: m.author || null, outbound: m.outbound || null,
+        from: m.from.address, to: (m.to || []).slice(0, 3), subject: m.subject,
+        key: `${this.partyOf(m)}|${baseSubject(m.subject).toLowerCase().replace(/\s+/g, ' ')}`,
+        refsInGroup: [m.inReplyTo, ...(m.references || [])].filter(r => r && byMid.has(r) && byMid.get(r) !== m).map(r => byMid.get(r).uid),
+        koh: [...m.labels].filter(l => l.startsWith('KOH/')),
+      })),
+    };
+  }
+
   async applyOwnerFix(user) {
     const list = this.ownerFixCandidates();
     for (const c of list) {
