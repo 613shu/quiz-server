@@ -712,7 +712,7 @@ class Engine {
         await this.p.modifyLabels([t.lastUid], this.isOut(last) ? [] : [L.done], [L.reopen, L.followup]);
         this.addLog(id, user, 'release', 'ביטל/ה תגובה נוספת');
       } else if (t.status === 'escalated') {
-        await this.p.modifyLabels(t.uids, [], this.byLabels());
+        await this.p.modifyLabels(t.uids, [], [...this.byLabels(), L.assigned]);
         this.addLog(id, user, 'release', 'שחרר/ה (נשארת בתיקיית המנהל)');
       } else {
         await this.p.modifyLabels(t.uids, [L.free], [...this.byLabels(), L.assigned]);
@@ -757,13 +757,14 @@ class Engine {
       const since = outs.length ? Date.parse(outs[outs.length - 1].date) - 60e3 : 0;
       const recent = [...this.oldLog, ...this.log].filter(e => ids.has(e.t) && Date.parse(e.at) >= since);
       const skip = why => { if (debug && t.assignee && t.assignee !== lastAuthor) skipped.push({ id: t.id, customer: t.fromEmail, subject: t.subject, assignee: t.assignee, lastAuthor, owners, assignedLabel: labels.has(L.assigned), free: labels.has(L.free), why, ids: t.ids, recent: recent.map(e => `${e.at} ${e.user} ${e.action} ${e.t}`) }); };
-      if (labels.has(L.assigned)) { skip('assigned-label'); continue; }
       if (!owners.length) { skip('no-owner-label'); continue; }
       if (!outs.length) { skip('no-authored-out'); continue; }
-      // מאז המייל האחרון שנשלח: מי לקח/ה, קיבל/ה העברה או פעל/ה בפניה (פעולה כזו = בעלות אמיתית)
+      // העברה במכוון לפניה הזו עצמה (לא דרך פניה מאוחדת אחרת) מאז המייל האחרון – לא נוגעים.
+      // סימון "הועבר אליך" בלי רישום כזה ביומן של הפניה = הגיע מהעברה של הפניה המאוחדת (16.11) – לא נחשב.
       const handedOver = recent.some(e => e.action === 'assign' || e.action === 'push');
-      // תווית שגויה: לא של מי ששלח/ה את המייל האחרון, ואין לה שום פעולה מאז המייל הזה
-      const wrong = owners.filter(k => k !== lastAuthor && !handedOver && !recent.some(e => e.user === k));
+      // בעלות אמיתית = לקח/ה, ענה/תה או שלח/ה מייל. "טופל" שסומן אחרי שהפניה הגיעה בטעות – לא נחשב.
+      const owns = k => recent.some(e => e.user === k && ['take', 'reply', 'compose', 'escalate'].includes(e.action));
+      const wrong = owners.filter(k => k !== lastAuthor && !handedOver && !owns(k));
       if (!wrong.length || wrong.length !== owners.length) { skip(handedOver ? 'handed-over' : 'owner-acted-or-mixed'); continue; }
       const to = [...authors].reverse().find(k => this.users.isActive(k)) || null;
       out.push({ id: t.id, subject: t.subject, customer: t.fromEmail, status: t.status, from: owners.map(k => this.userName(k)).join(', '), to: to ? this.userName(to) : '(כללי – אין שולח/ת פעיל/ה)', lastSent: outs[outs.length - 1].date });
