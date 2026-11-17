@@ -849,8 +849,8 @@ class Engine {
       const q = this.quoteOf(t);
       // פניה שהועברה מהצוות: הנושא בלי "FW:"/"RE:" המצטברים של ההתכתבות הפנימית
       const subject = q.forwarded ? 'Re: ' + baseSubject(li.subject) : /^re\s*:/i.test(li.subject) ? li.subject : 'Re: ' + baseSubject(li.subject);
-      // הציטוט: בפניה רגילה – כמו תמיד (אלא אם ביקשו בלי); בפניה שהועברה – ברירת המחדל בלי ציטוט, ואפשר לצרף רק את הודעות הלקוח
-      const noQuote = withQuote === false || (withQuote !== true && q.forwarded);
+      // ברירת המחדל: בלי ציטוט. מצרפים רק כשביקשו (withQuote=true). בפניה שהועברה מהצוות – רק ההודעות של הלקוח
+      const noQuote = withQuote !== true;
       const blocks = noQuote ? [] : q.blocks;
       const qStyle = 'font-family:Arial,sans-serif;font-size:13px;color:#555;text-align:right';
       const html = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;text-align:right">${esc(body).replace(/\n/g, '<br>')}</div>${signature.html()}`

@@ -691,19 +691,17 @@ function toNote(d) {
 }
 const validEmail = s => /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/.test(s);
 
-const quoteOn = d => !!d.quote && d.quote.mode !== 'none' && (S.quoteBy[d.id] ?? !d.quote.forwarded);
+// ברירת המחדל: בלי ציטוט – מצרפים רק כשמסמנים
+const quoteOn = d => !!d.quote && d.quote.mode !== 'none' && !!S.quoteBy[d.id];
 // מה יצוטט בתחתית התשובה (בפניה שהועברה מהצוות – רק הודעת הפונה, בלי ההתכתבות הפנימית)
 function quoteHtml(d) {
   const q = d.quote; if (!q) return '';
   if (q.mode === 'none') return `<div class="c-quote none">${esc(q.label)}</div>`;
   const off = !quoteOn(d);
-  // פניה שהועברה מהצוות: ברירת המחדל בלי ציטוט, ואפשר לצרף את הודעת הפונה. פניה רגילה: עם ציטוט, ואפשר לבטל
   return `<div class="c-quote ${off ? 'off' : ''}" id="c-quote">
       <span class="q-lbl">${off ? 'התשובה תישלח בלי ציטוט' : `יצורף ציטוט: ${esc(q.label)}`}</span>
       ${q.forwarded ? '<span class="q-safe">ההתכתבות הפנימית לא תישלח ללקוח</span>' : ''}
-      ${q.forwarded
-        ? `<label class="q-off"><input type="checkbox" id="add-quote" ${off ? '' : 'checked'}> צירוף ההודעה של הפונה</label>`
-        : `<label class="q-off"><input type="checkbox" id="no-quote" ${off ? 'checked' : ''}> בלי ציטוט</label>`}
+      <label class="q-off"><input type="checkbox" id="add-quote" ${off ? '' : 'checked'}> ${q.forwarded ? 'צירוף ההודעה של הפונה' : 'צירוף ציטוט'}</label>
       ${off ? '' : `<details class="q-prev"><summary>מה הלקוח יראה</summary><div class="q-body" dir="auto">${esc(q.preview)}</div></details>`}
     </div>`;
 }
@@ -1181,8 +1179,8 @@ function bindApp() {
   });
   det.addEventListener('change', e => {
     if (e.target.id === 'file-input') { addFiles([...e.target.files]); e.target.value = ''; }
-    if (e.target.id === 'no-quote' || e.target.id === 'add-quote') {
-      S.quoteBy[S.detail.id] = e.target.id === 'add-quote' ? e.target.checked : !e.target.checked;
+    if (e.target.id === 'add-quote') {
+      S.quoteBy[S.detail.id] = e.target.checked;
       const el = $('#c-quote'); if (el) el.outerHTML = quoteHtml(S.detail);
     }
   });
