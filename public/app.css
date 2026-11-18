@@ -2,33 +2,36 @@
    ניהול פניות – ערכת עיצוב כהה, חמה וחיה
    ============================================================ */
 :root {
+  /* "לוחות ודיו" – אבן כהה, טקסט קלף, הדגשה אחת בפליז. צבע מופיע רק כשיש לו משמעות. */
   color-scheme: dark;
-  --bg: #100d1c;
-  --bg-2: #161229;
-  --card: #1c1833;
-  --card-2: #241f40;
-  --ink: #fbf8ff;
-  --ink-2: #d4cdef;
-  --muted: #968fbd;
-  --line: #322b55;
-  --soft: #2a2449;
-  --hover: #2f2852;
+  --bg: #131419;
+  --bg-2: #17191f;
+  --card: #1b1d24;
+  --card-2: #21242c;
+  --ink: #efece4;
+  --ink-2: #c9c5bb;
+  --muted: #8e8b84;
+  --line: #2b2e37;
+  --soft: #262931;
+  --hover: #23262e;
 
-  --blue: #5b8cff;   --blue-bg: color-mix(in srgb, var(--blue) 18%, transparent);
-  --amber: #ffb020;  --amber-bg: color-mix(in srgb, var(--amber) 18%, transparent);
-  --green: #2fe39a;  --green-bg: color-mix(in srgb, var(--green) 16%, transparent);
-  --violet: #b18cff; --violet-bg: color-mix(in srgb, var(--violet) 18%, transparent);
-  --pink: #ff5ca8;   --pink-bg: color-mix(in srgb, var(--pink) 18%, transparent);
-  --red: #ff5d6c;
-  --coral: #ff7a45;
-  --teal: #2dd4bf;
-  --gray-bg: #2a2449;
+  --gold: #c9a65e;  --gold-ink: #1c160a;  --gold-bg: color-mix(in srgb, var(--gold) 13%, transparent);
+  --blue: #86a3c8;   --blue-bg: color-mix(in srgb, var(--blue) 13%, transparent);
+  --amber: #d2a65a;  --amber-bg: color-mix(in srgb, var(--amber) 13%, transparent);
+  --green: #8db89a;  --green-bg: color-mix(in srgb, var(--green) 12%, transparent);
+  --violet: #a99dd8; --violet-bg: color-mix(in srgb, var(--violet) 13%, transparent);
+  --pink: #c995ad;   --pink-bg: color-mix(in srgb, var(--pink) 13%, transparent);
+  --red: #d9827a;
+  --coral: var(--gold);
+  --teal: #86b5ae;
+  --gray-bg: #262931;
 
-  --warm: linear-gradient(135deg, #ffb020 0%, #ff7a45 45%, #ff4f8b 100%);
-  --warm-glow: 0 6px 22px rgba(255, 110, 70, .35);
-  --r: 18px;
-  --shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 10px 30px rgba(0,0,0,.35);
-  font-family: 'Rubik', 'Segoe UI', Arial, sans-serif;
+  --warm: var(--gold);
+  --warm-glow: none;
+  --r: 12px;
+  --shadow: none;
+  --serif: 'Frank Ruhl Libre', 'David', serif;
+  font-family: 'Heebo', 'Segoe UI', Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -951,14 +954,297 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .bounce-quiet .i { width: 14px; height: 14px; flex: none; color: #ff8a96; }
 .bounce-quiet .ba-to { color: var(--muted); }
 
-/* ---------- לוגו רשמי – קרן עולם התורה ---------- */
-.logo { width: 62px; height: 50px; border-radius: 14px; font-size: 0;
-  background: linear-gradient(160deg, #2a2348, #17132b) padding-box, var(--warm) border-box;
-  border: 1.5px solid transparent; box-shadow: 0 6px 20px rgba(255, 110, 70, .22); }
-.logo img { width: 88%; height: auto; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
-.login-logo { width: auto; height: auto; border-radius: 0; background: none; box-shadow: none; margin: 0 auto 18px; position: relative; }
-.login-logo::before { content: ''; position: absolute; inset: 10% 18%; border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(255, 122, 69, .28), transparent); filter: blur(18px); z-index: 0; }
-.login-logo img { position: relative; z-index: 1; width: 150px; height: auto; display: block; }
-.empty-crest { width: 190px; max-width: 46%; height: auto; margin: 0 auto 6px; opacity: .13; pointer-events: none; user-select: none; }
-@media (max-width: 700px) { .logo { width: 46px; height: 40px; border-radius: 12px; } }
+/* ============================================================
+   "לוחות ודיו" – שכבת העיצוב של קרן עולם התורה (2026-11-18)
+   בסיס מונוכרומטי שקט; פליז רק לפעולה ראשית, לבחירה פעילה ולסימון "לא נקרא".
+   צבעי סטטוס/קטגוריה מופיעים כנקודה או כטקסט – לא כמשטחים.
+   ============================================================ */
+
+/* ---- בסיס ---- */
+body { background: var(--bg); font-size: 15.5px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+::selection { background: color-mix(in srgb, var(--gold) 40%, transparent); color: var(--ink); }
+* { scrollbar-color: #33363f transparent; }
+::-webkit-scrollbar-thumb { background: #33363f; }
+::-webkit-scrollbar-thumb:hover { background-color: #444853; }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid color-mix(in srgb, var(--gold) 75%, transparent); outline-offset: 2px; }
+.search-wrap input:focus-visible, .c-box textarea:focus-visible, .cm-row input:focus-visible, .nb-row textarea:focus-visible { outline: none; }
+
+/* כותרות ומספרים – אות עברית קלאסית, כמו האותיות החקוקות בלוגו */
+.brand-title, .login h1, .mg-head h2, .d-name, .dlg h3, .cm-head h3, .kpi-n { font-family: var(--serif); letter-spacing: 0; }
+.brand-title { font-weight: 700; font-size: 21px; }
+.mg-head h2 { font-weight: 700; font-size: 30px; }
+.d-name { font-weight: 700; font-size: 23px; }
+.kpi-n { font-weight: 500; font-size: 40px; }
+.dlg h3, .cm-head h3 { font-weight: 700; font-size: 22px; }
+
+/* ---- אווטארים: ניטרליים; צבע הצוות רק כטבעת דקה ---- */
+.avatar { background: var(--card-2); color: var(--ink-2); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }
+.avatar.lg { box-shadow: inset 0 0 0 1px var(--line); }
+.avatar.team { background: color-mix(in srgb, var(--c) 22%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 70%, transparent); }
+
+/* ---- כפתורים ---- */
+.btn { border-radius: 9px; font-weight: 600; background: var(--soft); color: var(--ink-2); transition: background .15s, color .15s, box-shadow .15s; }
+.btn:hover { filter: none; background: #2e313a; color: var(--ink); }
+.btn:active { transform: none; }
+.btn.primary { background: var(--gold); color: var(--gold-ink); box-shadow: none; text-shadow: none; font-weight: 700; }
+.btn.primary:hover { background: #d6b46c; color: var(--gold-ink); box-shadow: none; }
+/* כפתורי פעולה משניים – קו דק וטקסט ניטרלי; הגוון נשאר רק באייקון */
+.btn.green, .btn.teal, .btn.violet, .btn.amber { background: transparent; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
+.btn.green:hover, .btn.teal:hover, .btn.violet:hover, .btn.amber:hover { background: var(--hover); color: var(--ink); box-shadow: inset 0 0 0 1px #3a3e48; }
+.btn.green .i { color: var(--green); } .btn.teal .i { color: var(--teal); }
+.btn.red { background: var(--red); color: #1f0d0b; box-shadow: none; }
+.btn.ghost:hover { background: var(--soft); }
+.done-split { border-radius: 9px; }
+.done-split .btn:first-child { border-start-start-radius: 9px; border-end-start-radius: 9px; }
+.done-split .btn:last-child { border-start-end-radius: 9px; border-end-end-radius: 9px; }
+.done-split .btn + .btn { margin-inline-start: -1px; }
+
+/* ---- מסך כניסה ---- */
+.login-card { background: var(--card); backdrop-filter: none; border-radius: 16px; box-shadow: 0 30px 60px rgba(0,0,0,.35); padding: 44px 36px 36px; }
+.login-logo { width: auto; height: auto; border-radius: 0; background: none; box-shadow: none; margin: 0 auto 26px; }
+.login-logo::before { content: none; }
+.login-logo img { width: 132px; height: auto; display: block; margin: 0 auto; }
+.login h1 { font-size: 30px; font-weight: 700; }
+.login-sub { display: none; }           /* שם הקרן כבר כתוב בלוגו */
+.login-q { margin: 22px 0 12px; font-weight: 500; color: var(--muted); font-size: 14.5px; }
+.login-user { border-radius: 10px; border: 1px solid var(--line); background: transparent; font-weight: 600; transition: border-color .15s, background .15s; }
+.login-user:hover { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); background: var(--hover); transform: none; box-shadow: none; }
+#login-pass { border-radius: 10px; border: 1px solid var(--line); }
+#login-pass:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-bg); }
+
+/* ---- שורה עליונה: הלוגו הלבן, קו מפריד, שם המערכת ---- */
+.topbar { background: var(--bg); backdrop-filter: none; border-bottom: 1px solid var(--line); padding: 12px 24px; }
+.topbar::after { content: none; }
+.brand { gap: 14px; }
+.logo { display: flex; align-items: center; width: auto; height: auto; flex: none; border: 0; border-radius: 0; background: none; box-shadow: none; padding-inline-end: 14px; border-inline-end: 1px solid var(--line); }
+.logo img { width: 56px; height: auto; display: block; filter: none; }
+.compose-btn { white-space: nowrap; }
+.brand-sub { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.sync { background: transparent; border-color: var(--line); color: var(--muted); }
+.dot { background: var(--green); box-shadow: none; }
+.dot.bad { background: var(--red); box-shadow: none; }
+.dot.wait { background: var(--amber); box-shadow: none; }
+.me-role { color: var(--muted); font-weight: 600; }
+.compose-btn { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); border-radius: 9px; }
+.compose-btn .i { color: var(--gold); }
+.compose-btn:hover { background: var(--hover); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 50%, var(--line)); }
+
+/* ניווט ראשי (מנהל) – לשוניות טקסט עם קו פליז מתחת לפעילה */
+.main-nav { background: none; border: 0; padding: 0; gap: 4px; margin-inline-start: 18px; }
+.nav-b { border: 0; border-radius: 0; padding: 9px 12px; color: var(--muted); background: none; box-shadow: inset 0 -2px 0 transparent; }
+.nav-b:hover { background: none; color: var(--ink); }
+.nav-b.on { background: none; color: var(--ink); border: 0; box-shadow: inset 0 -2px 0 var(--gold); }
+.nav-n { background: var(--soft); color: var(--ink-2); }
+
+/* מוני סטטוס בשורה העליונה – מונוכרום */
+.stat { background: transparent; border: 1px solid var(--line); }
+.stat:hover { background: var(--hover); }
+.stat.on { border-color: color-mix(in srgb, var(--gold) 60%, var(--line)); }
+.stat-ic { background: none; color: var(--c); width: 18px; }
+.stat .num { color: var(--ink); font-weight: 700; }
+
+/* באנרים והתראות – שטוחים, פס צבע דק בצד במקום גרדיאנט ודופק */
+.banner { border-radius: 10px; background: color-mix(in srgb, var(--red) 9%, var(--card)); color: #f0c7c2; border: 1px solid color-mix(in srgb, var(--red) 30%, transparent); }
+.banner.ok { background: color-mix(in srgb, var(--green) 9%, var(--card)); color: #cfe6d6; border-color: color-mix(in srgb, var(--green) 30%, transparent); }
+.banner.info { background: color-mix(in srgb, var(--amber) 9%, var(--card)); color: #ead7b1; border-color: color-mix(in srgb, var(--amber) 30%, transparent); }
+.nt { border-radius: 10px; background: var(--card); border: 1px solid var(--line); border-inline-start: 3px solid var(--c); box-shadow: none; animation: none; }
+.nt:hover { transform: none; box-shadow: none; background: var(--hover); }
+.nt b { color: var(--ink); }
+.nt-ic { animation: none; background: none; color: var(--c); width: 24px; }
+.nt-go { color: var(--muted); }
+.nt.push { background: var(--card); }
+
+/* ---- פריסה: משטחים שטוחים בלי צל ---- */
+.layout { gap: 0; padding: 0; }
+@media (min-width: 1201px) { .layout { grid-template-columns: 248px minmax(340px, 430px) 1fr; } }
+.side-pane, .list-pane, .detail-pane { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.side-pane { border-inline-end: 1px solid var(--line); padding: 18px 14px; }
+.list-pane { border-inline-end: 1px solid var(--line); background: var(--bg-2); }
+.detail-pane { background: var(--bg); }
+
+/* סרגל צד */
+.side-h { letter-spacing: 0; font-weight: 600; font-size: 12.5px; color: var(--muted); }
+.tab { border-radius: 8px; padding: 9px 12px; font-size: 15px; color: var(--ink-2); }
+.tab:hover { background: var(--hover); }
+.tab .cnt { background: none; color: var(--muted); font-weight: 600; padding: 0; min-width: 0; font-variant-numeric: tabular-nums; }
+.tab.active { background: var(--card-2); color: var(--ink); box-shadow: inset -2px 0 0 var(--gold); font-weight: 700; }
+.tab.active .cnt { background: none; color: var(--gold); }
+.tab .hot { background: var(--gold); color: var(--gold-ink); box-shadow: none; }
+.tab.active .hot { background: var(--gold); color: var(--gold-ink); }
+.tab.warn-tab .cnt { background: none; color: var(--red); }
+.chip { border-radius: 8px; padding: 8px 12px; font-size: 14.5px; }
+.chip::before { width: 7px; height: 7px; box-shadow: none; }
+.chip .n { background: none; color: var(--muted); font-weight: 600; padding: 0; min-width: 0; }
+.chip.active { background: var(--card-2); color: var(--ink); box-shadow: inset -2px 0 0 var(--gold); }
+.chip.active .n { background: none; color: var(--gold); }
+.cats-side-btn, .cats-btn { background: transparent; border-radius: 8px; }
+.cats-side-btn:hover, .cats-side-btn.open, .cats-btn:hover, .d-cats.open .cats-btn { border-color: #3a3e48; }
+.csb-cur { background: none; color: var(--ink-2); padding: 0; }
+
+/* חיפוש */
+.filters { padding: 14px 14px 12px; border-bottom: 1px solid var(--line); }
+.search-wrap { background: var(--bg); border: 1px solid var(--line); border-radius: 9px; }
+.search-wrap:focus-within { border-color: color-mix(in srgb, var(--gold) 70%, var(--line)); box-shadow: 0 0 0 3px var(--gold-bg); }
+
+/* ---- רשימת פניות: שורות, לא כרטיסים ---- */
+.inq-list { padding: 0; gap: 0; }
+.inq { border-radius: 0; border: 0; background: transparent; padding: 15px 18px; gap: 13px; border-bottom: 1px solid var(--line); transition: background .12s; }
+.inq:hover { background: var(--hover); }
+.inq.sel { background: var(--card-2); border-color: var(--line); box-shadow: inset -3px 0 0 var(--gold); }
+.inq::after { inset-inline-start: 8px; top: 50%; bottom: auto; height: 6px; width: 6px; border-radius: 50%; transform: translateY(-50%); background: var(--s); box-shadow: none; opacity: .0; }
+.inq-from { font-weight: 600; font-size: 15.5px; }
+.inq-subj { font-weight: 500; color: var(--ink-2); font-size: 14.5px; }
+.inq-snip { font-size: 13.5px; color: var(--muted); }
+.inq-time { font-variant-numeric: tabular-nums; }
+.inq-meta { gap: 6px 10px; margin-top: 8px; }
+.unread-dot { width: 7px; height: 7px; background: var(--gold); box-shadow: none; vertical-align: 2px; }
+.inq .avatar { width: 38px; height: 38px; font-size: 14px; }
+
+/* תגיות סטטוס – טקסט בגוון, רקע עדין מאוד */
+.pill { font-weight: 600; font-size: 12px; padding: 2px 8px; border-radius: 6px; box-shadow: none; }
+.pill.new { color: var(--blue); background: var(--blue-bg); }
+.pill.in_progress { color: var(--amber); background: var(--amber-bg); }
+.pill.handled, .pill.worked { color: var(--green); background: var(--green-bg); box-shadow: none; }
+.pill.escalated, .pill.assigned { color: var(--violet); background: var(--violet-bg); }
+.pill.returned { color: var(--pink); background: var(--pink-bg); }
+.pill.overdue, .pill.bounced { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); box-shadow: none; }
+.pill.tracking, .pill.from-track { color: var(--teal); background: color-mix(in srgb, var(--teal) 12%, transparent); box-shadow: none; }
+.pill.track-age { color: var(--teal); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 35%, transparent); }
+.pill.outbound { color: var(--ink-2); background: var(--soft); }
+.pill.pushed-to { color: var(--violet); background: var(--violet-bg); box-shadow: none; }
+/* קטגוריות – נקודה קטנה וטקסט ניטרלי */
+.cat { background: none; color: var(--muted); padding: 2px 0; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
+.cat::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
+.cat-dot { color: var(--ink-2); }
+.cat-dot::before { box-shadow: none; }
+.cat-toggle { border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
+.cat-toggle:hover { border-color: #3a3e48; color: var(--ink-2); }
+.cat-toggle.on { background: color-mix(in srgb, var(--c) 12%, transparent); color: var(--ink); border-color: color-mix(in srgb, var(--c) 55%, transparent); font-weight: 600; }
+.owner-tag { background: none; box-shadow: none; color: var(--ink-2); padding: 0; font-weight: 600; }
+.owner-tag i { background: color-mix(in srgb, var(--c) 30%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 70%, transparent); }
+
+/* פניה שהמנהל הקפיץ – הבלטה שקטה וקבועה, בלי מסגרת מסתובבת */
+.inq.pushed { background: color-mix(in srgb, var(--violet) 7%, transparent); box-shadow: inset -3px 0 0 var(--violet); animation: none; }
+.inq.pushed::before { content: none; }
+.inq.pushed.sel { background: color-mix(in srgb, var(--violet) 11%, var(--card-2)); }
+.inq-push { background: none; border: 0; border-inline-start: 2px solid color-mix(in srgb, var(--violet) 50%, transparent); border-radius: 0; padding: 2px 10px; }
+.ip-tag { color: var(--violet); }
+.ip-tag .i { color: var(--violet); }
+
+/* ---- חלונית השיחה ---- */
+.d-head { background: none; padding: 26px 30px 20px; }
+.d-subj { font-size: 17px; font-weight: 600; color: var(--ink-2); margin-top: 12px; }
+.d-email a:hover { color: var(--gold); }
+.d-actions { gap: 8px; margin-top: 18px; }
+.convo { background: none; padding: 26px 30px; gap: 16px; }
+.day { background: none; border: 0; color: var(--muted); font-size: 12.5px; padding: 0; display: flex; align-items: center; gap: 12px; align-self: stretch; }
+.day::before, .day::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.event { background: none; color: var(--muted); }
+.event b { color: var(--ink-2); }
+.bubble { border-radius: 12px; box-shadow: none; padding: 13px 16px 11px; }
+.row.in .bubble { background: var(--card); border: 1px solid var(--line); border-end-start-radius: 4px; }
+.row.out .bubble { background: color-mix(in srgb, var(--c) 6%, var(--card-2)); border: 1px solid var(--line); border-end-end-radius: 4px; }
+.row.out .b-who { color: var(--ink); }
+.b-tag, .row.in .b-tag { background: none; color: var(--muted); padding: 0; font-weight: 500; }
+.b-body { line-height: 1.7; max-width: 70ch; }
+.quoted { background: rgba(255,255,255,.025); border-inline-start: 2px solid var(--line); border-radius: 0 6px 6px 0; }
+.q-toggle:hover, .att:hover, .att-dl:hover { color: var(--gold) !important; }
+.att:hover, .att-img:hover img { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); }
+.locked { background: none; color: var(--muted); }
+.locked b { color: var(--gold); }
+.empty-crest { width: 170px; max-width: 46%; height: auto; margin: 0 auto 10px; opacity: .09; pointer-events: none; user-select: none; }
+.empty-detail { color: var(--muted); font-size: 15px; }
+
+/* כתיבת תשובה */
+.composer { background: var(--bg); padding: 16px 30px 18px; }
+.c-box { border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.c-box:focus-within { border-color: color-mix(in srgb, var(--gold) 65%, var(--line)); box-shadow: 0 0 0 3px var(--gold-bg); }
+.c-foot { background: var(--bg-2); border-top: 1px solid var(--line); }
+.c-to:focus, .c-to-reset:hover { border-color: color-mix(in srgb, var(--gold) 65%, var(--line)); box-shadow: none; }
+.c-box.drag { border-color: var(--gold); }
+.c-box .drop-hint { background: var(--gold-bg); color: var(--gold); }
+.bar span { background: var(--gold); }
+.send-box { background: var(--card); border-color: var(--line); }
+
+/* הערה פנימית – פתק שקט, בלי פסים */
+.notes-box { border: 1px solid var(--line); border-inline-start: 2px solid var(--amber); border-radius: 10px; background: var(--card); }
+.nb-head { color: var(--amber); }
+.note { background: var(--card); border: 1px solid var(--line); border-inline-start: 2px solid var(--amber); border-radius: 10px; }
+.n-tag { background: none; color: var(--amber); padding: 0; }
+.note-btn { background: transparent; color: var(--amber); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 40%, transparent); }
+
+/* הקפצת מנהל – סגול מעומעם, סטטי */
+.push-box { background: var(--card); border: 1px solid var(--line); border-inline-start: 2px solid var(--violet); border-radius: 10px; }
+.pb-ic { background: none; color: var(--violet); width: 20px; }
+.pb-title { color: var(--ink); }
+.pb-note { color: var(--muted); opacity: 1; }
+.push-btn, .pn-ack { background: var(--violet); color: #17132a; box-shadow: none; }
+.pb-who.on { border-color: color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 12%, var(--bg-2)); box-shadow: none; }
+.note.push { background: var(--card); border: 1px solid var(--line); border-inline-start: 2px solid var(--violet); box-shadow: none; }
+.note.push.pinned { animation: none; }
+.note.push.pinned::after { content: none; }
+.pn-badge { background: none; color: var(--violet); padding: 0; box-shadow: none; }
+.note.push .n-head b { color: var(--ink); }
+
+/* מייל שחזר */
+.bounce-alert { background: var(--card); box-shadow: none; border: 1px solid var(--line); border-inline-start: 2px solid var(--red); border-radius: 10px; }
+.ba-ic { background: none; }
+.ba-title { color: var(--ink); }
+
+/* ---- דיאלוגים והודעות ---- */
+.dlg { border-radius: 14px; box-shadow: 0 30px 70px rgba(0,0,0,.45); }
+.dlg::backdrop { background: rgba(8,9,12,.65); backdrop-filter: blur(3px); }
+.dlg-icon { background: var(--soft); color: var(--ink-2); box-shadow: none; border-radius: 12px; }
+.dlg-icon.red { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); box-shadow: none; }
+.dlg b { color: var(--ink); }
+.field textarea:focus, .field input:focus, .field select:focus { border-color: color-mix(in srgb, var(--gold) 65%, var(--line)); }
+.field textarea, .field input, .field select { border-width: 1px; border-radius: 9px; }
+.pick { border-radius: 10px; border-width: 1px; background: transparent; }
+.pick:hover { transform: none; background: var(--hover); }
+.role-b, .cur-b { background: var(--soft); color: var(--ink-2); }
+.toast { border-radius: 10px; background: var(--card-2); border-inline-start-width: 3px; box-shadow: 0 16px 36px rgba(0,0,0,.4); }
+.toast.err { background: var(--card-2); }
+
+/* מייל חדש */
+.cm-head { background: none; }
+.cm-head::before { content: none; }
+.cm-badge { background: var(--soft); color: var(--gold); box-shadow: none; border-radius: 10px; }
+.cm-row:focus-within { border-bottom-color: var(--gold); }
+.cm-row:focus-within span { color: var(--gold); }
+
+/* ---- מסכי ניהול ---- */
+.manage-pane { padding: 28px 28px 48px; }
+.mg-head p { color: var(--muted); }
+.seg { background: transparent; border-radius: 9px; }
+.seg-b { border-radius: 7px; }
+.seg-b.on, .range .seg-b.on { background: var(--card-2); color: var(--ink); box-shadow: inset 0 -2px 0 var(--gold); }
+.seg-b.on span { background: none; color: var(--gold); }
+.seg-b.warm:not(.on) span { background: var(--gold); color: var(--gold-ink); }
+.seg-b.alert:not(.on) span { background: var(--red); color: #1f0d0b; }
+.panel { background: var(--card); border-radius: 12px; }
+.now-b { background: transparent; border-radius: 9px; }
+.now-b:hover { transform: none; border-color: #3a3e48; }
+.now-b.warn { border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.now-cta { background: var(--gold); color: var(--gold-ink); box-shadow: none; border-radius: 9px; }
+.now-cta:hover { filter: none; transform: none; background: #d6b46c; }
+.role-t.manager { color: var(--ink); }
+.num-b.warm { color: var(--gold); }
+.num-b.alert { color: var(--red); }
+.hbar-t i, .share i { opacity: .7; }
+
+/* ---- נייד ---- */
+@media (max-width: 900px) {
+  .topbar { padding: 10px 14px; }
+  .logo { padding-inline-end: 10px; }
+  .logo img { width: 46px; }
+  .brand-title { font-size: 19px; }
+  .layout { padding: 0; gap: 0; }
+  .side-pane { border-inline-end: 0; border-bottom: 1px solid var(--line); padding: 10px 12px; }
+  .list-pane { border-inline-end: 0; }
+  .tab.active, .chip.active { box-shadow: inset 0 -2px 0 var(--gold); }
+  .d-head, .convo, .composer { padding-left: 16px; padding-right: 16px; }
+  .manage-pane { padding: 18px 14px 40px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+/* צבעי הקטגוריות מגיעים מהשרת ברוויה מלאה – מעמעמים את הנקודות כדי שיתאימו לערכה */
+.cat::before, .chip::before, .cat-dot::before, .csb-cur, .cat-toggle.on { filter: saturate(.55) brightness(.95); }
