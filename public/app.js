@@ -14,7 +14,7 @@ const stKey = it => it.status === 'handled' && it.tracking ? 'tracking' : it.sta
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86400e3));
 const trackAge = iso => { const n = daysSince(iso); return n === 0 ? 'נענתה היום' : n === 1 ? 'ממתינה יום אחד' : `ממתינה ${n} ימים`; };
 // צבע קבוע לכל חבר צוות לפי סדר ההוספה (לא לפי דירוג) – פלטה שנבדקה לעיוורון צבעים על הרקע הכהה
-const TEAM_COLORS = ['#7f9fc9', '#c98f6b', '#7fb293', '#c9a65e', '#b98aa5', '#93a878', '#9c93d0', '#c98383'];  // גוונים מעומעמים – תואמים לערכת "לוחות ודיו"
+const TEAM_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 // אייקוני קו שקטים (במקום אימוג׳י)
 const ICONS = {
   arrow: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
