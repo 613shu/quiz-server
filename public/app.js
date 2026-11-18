@@ -634,7 +634,7 @@ function notesBox(d) {
 
 function renderDetail() {
   const d = S.detail, el = $('#detail');
-  if (!d) { el.innerHTML = `<div class="empty-detail"><div class="big">${ic('chat')}</div><div>בחרו פניה מהרשימה כדי לראות את כל השיחה</div></div>`; return; }
+  if (!d) { el.innerHTML = `<div class="empty-detail"><img class="empty-crest" src="images/koh/koh-logo-white.png" alt="" aria-hidden="true"><div>בחרו פניה מהרשימה כדי לראות את כל השיחה</div></div>`; return; }
   const me = S.me.key;
   const esc_ = d.status === 'escalated';
   const mine = (d.status === 'in_progress' || esc_) && d.assignee === me;
