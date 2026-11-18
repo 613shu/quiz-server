@@ -82,6 +82,28 @@
       </div>`;
   }
 
+  // טווח של יום אחד: עמודה לכל חבר צוות – פילוח המענה לפי מזכירות
+  function memberChart(members) {
+    const series = members.filter(m => !m.deleted && (m.range > 0 || m.replies > 0));
+    if (!series.length) return `<div class="chart-empty">אין עדיין טיפול בפניות בטווח הזה</div>`;
+    const raw = Math.max(1, ...series.map(m => Math.max(m.range, m.replies)));
+    const step = raw <= 5 ? 1 : raw <= 10 ? 2 : raw <= 25 ? 5 : raw <= 50 ? 10 : Math.ceil(raw / 50) * 10;
+    const top = Math.ceil(raw / step) * step;
+    const grid = []; for (let v = 0; v <= top; v += step) grid.push(v);
+    const cols = series.map(m => {
+      const tip = `<b>${esc(m.name)}</b><span class="tt-row"><i style="--c:${teamColor(m.key)}"></i>פניות טופלו<b>${m.range}</b></span><span class="tt-row"><i style="--c:${teamColor(m.key)};opacity:.45"></i>תשובות נשלחו<b>${m.replies}</b></span>`;
+      return `<div class="col mcol" data-tip="${esc(tip)}">
+        <div class="mbars"><div class="stack mbar" style="height:${(m.range / top) * 100}%"><span style="--c:${teamColor(m.key)};flex:1"></span></div>
+          <div class="stack mbar soft" style="height:${(m.replies / top) * 100}%"><span style="--c:${teamColor(m.key)};flex:1"></span></div></div>
+        <div class="xl">${esc(m.name)}</div></div>`;
+    }).join('');
+    return `<div class="legend"><span><i style="--c:var(--ink-2)"></i>פניות טופלו</span><span><i style="--c:var(--ink-2);opacity:.45"></i>תשובות נשלחו</span></div>
+      <div class="chart" dir="ltr">
+        <div class="grid">${grid.map(v => `<div class="gl" style="bottom:${(v / top) * 100}%"><span>${v}</span></div>`).join('')}</div>
+        <div class="cols">${cols}</div>
+      </div>`;
+  }
+
   function dayTable(members) {
     const series = members.filter(m => m.range > 0);
     const bs = buckets().slice().reverse();
@@ -134,7 +156,10 @@
         <div class="sec-head"><h3>פניות שטופלו ${d.days.length > 62 ? 'בכל שבוע' : 'בכל יום'}</h3>
           <button class="lnk" id="tbl-toggle">${M.showTable ? 'הצג כגרף' : 'הצג כטבלה'}</button></div>
         ${M.showTable ? dayTable(members) : chart(members)}
-      </section>` : ''}</div>`;
+      </section>` : `<section class="mg-sec panel">
+        <div class="sec-head"><h3>פילוח מענה לפי מזכירות</h3><span class="muted sm">${label}</span></div>
+        ${memberChart(members)}
+      </section>`}</div>`;
     if (el.innerHTML !== html) el.innerHTML = html;   // רענון שקט: רק אם משהו השתנה
   }
 
