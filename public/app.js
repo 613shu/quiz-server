@@ -599,7 +599,7 @@ function pushBox(d) {
     : to !== d.assignee ? `<div class="pb-note">הפניה תיפתח מחדש אצל ${esc(teamName(to))}</div>` : '';
   // מקופל כברירת מחדל – שורה אחת, כדי שהשיחה עצמה תקבל את המקום. טיוטה נשמרת גם כשמקפלים.
   const open = S.pushOpen;
-  const head = `<button type="button" class="pb-head pb-toggle" id="pb-toggle" aria-expanded="${open}"><span class="pb-ic">${ic('bell')}</span><span class="pb-title">${toMgr ? 'הקפץ הודעה זו למנהל' : 'הקפץ הודעה זו למזכירה'}</span>
+  const head = `<button type="button" class="pb-head pb-toggle" id="pb-toggle" aria-expanded="${open}"><span class="pb-ic">${ic('bell')}</span><span class="pb-title">${open ? (toMgr ? 'הקפץ הודעה זו למנהל' : 'הקפץ הודעה זו למזכירה') : (toMgr ? 'הקפצה למנהל' : 'הקפצה למזכירה')}</span>
       ${open ? `<span class="pb-sub">${toMgr ? 'תופיע אצלו' : 'תופיע אצלה'} בראש הפתוחות, מודגשת, עם השם שלך · לא נשלחת לתורם</span>` : ''}${!open && S.noteDraft[d.id] ? '<span class="pb-draft">יש טיוטה</span>' : ''}${ic('chev', 'chev')}</button>`;
   if (!open) return `<div class="push-box closed">${head}</div>`;
   return `<div class="push-box">
@@ -675,13 +675,10 @@ function renderDetail() {
       <div class="d-top">
         ${avatar(d.fromName, custColor(d.fromEmail), 'lg')}
         <div class="d-who">
-          <div class="d-name">${esc(d.fromName)}</div>
-          <div class="d-email"><a href="mailto:${esc(d.fromEmail)}">${esc(d.fromEmail)}</a></div>
+          <div class="d-line"><span class="d-name">${esc(d.fromName)}</span><span class="d-email"><a href="mailto:${esc(d.fromEmail)}">${esc(d.fromEmail)}</a></span></div>
+          <div class="d-subj" title="${esc(d.subject)}">${esc(d.subject)}</div>
         </div>
-        <button type="button" class="wide-btn" id="wide-btn" aria-pressed="${S.wide}" title="${S.wide ? 'חזרה לתצוגה עם רשימת הפניות (Esc)' : 'הצגת הפניה על כל המסך – יותר מקום לשיחה'}">${ic(S.wide ? 'shrink' : 'expand')}<span>${S.wide ? 'הצגת הרשימה' : 'מסך מלא'}</span></button>
-      </div>
-      <div class="d-subj">${esc(d.subject)}</div>
-      <div class="d-state">
+        <div class="d-state">
         <span class="pill ${stKey(d)}">${d.tracking ? ic('eye') : ''}${esc(d.status === 'escalated' ? 'אצל המנהל · ' + (MGR_LABEL[d.mgr] || '') : d.status === 'handled' ? doneText(d) : STATUS[d.status])}</span>
         ${d.tracking ? `<span class="pill track-age" title="מאז התשובה האחרונה ללקוח">${trackAge(d.lastActivity)}</span>` : ''}
         ${d.outbound ? `<span class="pill outbound" title="הפניה נפתחה במייל שנשלח יזום מהדשבורד">${ic('mail')}מייל יזום</span>` : ''}
@@ -691,10 +688,15 @@ function renderDetail() {
         ${d.bounced ? `<span class="pill bounced${d.bounced.seen ? ' seen' : ''}">${ic('bounce')}לא הגיע ליעד</span>` : ''}
         ${d.overdue ? `<span class="pill overdue">${waitText(d.lastIncoming)}</span>` : ''}
         ${owner}
+        </div>
+        ${catsBox(d)}
+        ${d.readOnly || !isMgr() ? '' : pushBox(d)}
+        <button type="button" class="wide-btn" id="wide-btn" aria-pressed="${S.wide}" title="${S.wide ? 'חזרה לתצוגה עם רשימת הפניות (Esc)' : 'הצגת הפניה על כל המסך – יותר מקום לשיחה'}">${ic(S.wide ? 'shrink' : 'expand')}<span>${S.wide ? 'הצגת הרשימה' : 'מסך מלא'}</span></button>
       </div>
-      ${actions ? `<div class="d-actions">${actions}</div>` : ''}
-      ${catsBox(d)}
-      ${d.readOnly ? '' : notesBox(d)}
+      ${actions || (!d.readOnly && !isMgr()) ? `<div class="d-bar">
+        ${actions ? `<div class="d-actions">${actions}</div>` : ''}
+        ${d.readOnly || isMgr() ? '' : notesBox(d)}
+      </div>` : ''}
     </div>
     ${pinnedPushes(d).map(n => pushNote(n, true)).join('')}
     ${bounceAlert(d)}
