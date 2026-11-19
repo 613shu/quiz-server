@@ -1333,3 +1333,85 @@ body { background:
   .notice { margin: 10px 12px 0; }
   .nt { border-radius: 14px; }
 }
+
+/* ============================================================
+   התאמה למסכים 1.2 – כניסה בלי גלילה, מסך מלא לפניה, שורה עליונה שלא נחתכת
+   ============================================================ */
+
+/* מסך כניסה: הכרטיס תמיד בגובה החלון; אם יש הרבה משתמשים – הרשימה נגללת בתוך הכרטיס */
+.login { min-height: 100dvh; padding: 16px; }
+.login-card { max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+#login-step1 { display: flex; flex-direction: column; min-height: 0; }
+.login-users { overflow-y: auto; min-height: 0; padding: 2px; margin: -2px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+@media (max-height: 860px) {
+  .login-card { padding: 28px 32px 24px; }
+  .login-logo { margin-bottom: 14px; }
+  .login-logo img { width: 92px; }
+  .login h1 { font-size: 26px; }
+  .login-q { margin: 14px 0 10px; }
+  .login-users { gap: 8px; }
+  .login-user { padding: 9px 13px; }
+}
+@media (max-height: 620px) {
+  .login-logo img { width: 64px; }
+  .login-logo { margin-bottom: 8px; }
+  .login-card { padding: 20px 28px 18px; }
+  .login h1 { font-size: 22px; }
+}
+
+/* כפתור "מסך מלא" – בפינת הפניה */
+.wide-btn { flex: none; align-self: flex-start; display: inline-flex; white-space: nowrap; align-items: center; gap: 7px;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-2); background: transparent; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px 5px 10px; transition: color .12s, border-color .12s, background .12s; }
+.wide-btn .i { width: 15px; height: 15px; color: var(--gold); }
+.wide-btn:hover { color: var(--ink); background: var(--hover); border-color: color-mix(in srgb, var(--gold) 50%, var(--line)); }
+.wide-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.wide-btn[aria-pressed="true"] { color: var(--ink); border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); background: color-mix(in srgb, var(--gold) 9%, transparent); }
+@media (min-width: 901px) {
+  .layout.wide { grid-template-columns: minmax(0, 1fr); }
+  .layout.wide .side-pane, .layout.wide .list-pane { display: none; }
+  /* במסך מלא – עמודת קריאה ממורכזת, לא שורות ארוכות מדי */
+  .layout.wide .detail-pane > :not(.bounce-alert):not(.note) { padding-inline: max(30px, calc((100% - 1180px) / 2)); }
+  .layout.wide .detail-pane > .bounce-alert, .layout.wide .detail-pane > .note { margin-inline: max(20px, calc((100% - 1180px) / 2)); }
+  /* במסך מלא – פרטי הפניה בצד אחד, פעולות בצד השני: השיחה מתחילה הרבה יותר גבוה */
+  .layout.wide .d-head { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(0, max-content); grid-auto-flow: row dense; column-gap: 36px; align-items: start; }
+  .layout.wide .d-head > .d-top, .layout.wide .d-head > .d-subj, .layout.wide .d-head > .d-state { grid-column: 1; }
+  .layout.wide .d-head > .d-actions, .layout.wide .d-head > .d-cats, .layout.wide .d-head > .push-box, .layout.wide .d-head > .notes-box { grid-column: 2; max-width: 780px; }
+  .layout.wide .d-head > .d-actions { margin-top: 0; justify-content: flex-end; }
+  .layout.wide .d-head > .d-cats { justify-content: flex-end; }
+  .layout.wide .d-head > .push-box.closed { justify-self: end; }
+  .layout.wide .d-head > .notes-box { width: 620px; }
+}
+@media (max-width: 900px) { .wide-btn { display: none; } .d-top { padding-inline-end: 0; } }
+
+/* הקפצה למזכירה – מקופלת לשורה אחת */
+.pb-toggle { display: flex; width: 100%; background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: start; cursor: pointer; }
+.pb-toggle .chev { width: 14px; height: 14px; color: var(--muted); margin-inline-start: auto; transition: transform .2s; flex: none; }
+.pb-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.pb-toggle:focus-visible { outline: 2px solid var(--violet); outline-offset: 3px; border-radius: 6px; }
+.push-box.closed { display: inline-flex; padding: 5px 12px 5px 8px; border-radius: 999px; margin-top: 10px; border: 1px solid color-mix(in srgb, var(--violet) 40%, var(--line)); }
+.push-box.closed .pb-toggle { margin: 0; gap: 8px; width: auto; }
+.push-box.closed .pb-ic { width: 22px; height: 22px; border-radius: 7px; }
+.push-box.closed .pb-title { font-size: 13px; font-weight: 600; }
+.push-box.closed:hover { border-color: color-mix(in srgb, var(--violet) 55%, var(--line)); }
+.pb-draft { font-size: 11px; font-weight: 700; color: var(--violet); background: color-mix(in srgb, var(--violet) 14%, transparent); padding: 1px 8px; border-radius: 999px; }
+
+/* שורה עליונה: "יציאה" לא נחתך ברוחב בינוני */
+.me .btn { white-space: nowrap; }
+@media (min-width: 901px) {
+  .brand, .main-nav, .me, .compose-btn { flex: none; }
+  .stats { min-width: 0; flex-wrap: nowrap; }
+}
+@media (min-width: 901px) and (max-width: 1280px) {
+  .topbar { gap: 12px; padding-inline: 16px; }
+  .compose-btn span { display: none; }
+  .compose-btn { padding: 8px 10px; }
+  .sync > span:last-child { display: none; }
+  .me-role { display: none; }
+  .brand-sub { display: none; }
+}
+@media (min-width: 901px) and (max-width: 1060px) {
+  .main-nav { margin-inline-start: 4px; }
+  .brand-title { display: none; }
+  .stat .lbl { display: none; }
+}

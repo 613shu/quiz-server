@@ -38,6 +38,8 @@ const ICONS = {
   tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   chev: '<path d="m6 9 6 6 6-6"/>',
   bounce: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/>',
+  expand: '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>',
+  shrink: '<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/>',
 };
 const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 const isMgr = () => !!(S.me && S.me.manager);
@@ -75,7 +77,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 
 const S = {
-  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, pushMgrOpen: {}, catsOpen: false, sideCatsOpen: ls.get('koh.sideCats', false),
+  cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, pushMgrOpen: {}, catsOpen: false, wide: ls.get('koh.wide', false), pushOpen: ls.get('koh.pushOpen', false), sideCatsOpen: ls.get('koh.sideCats', false),
   items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, quoteBy: {}, sending: null, sendErr: {}, sentOk: {},
   seen: ls.get('koh.seen', {}),
 };
@@ -595,9 +597,13 @@ function pushBox(d) {
     : toMgr ? `<div class="pb-note">הפניה נשארת במקומה · תופיע אצל ${esc(teamName(to))} בראש "הפניות שלי"</div>`
     : to !== d.assignee && d.status !== 'handled' ? `<div class="pb-note">הפניה תעבור לטיפול של ${esc(teamName(to))}</div>`
     : to !== d.assignee ? `<div class="pb-note">הפניה תיפתח מחדש אצל ${esc(teamName(to))}</div>` : '';
+  // מקופל כברירת מחדל – שורה אחת, כדי שהשיחה עצמה תקבל את המקום. טיוטה נשמרת גם כשמקפלים.
+  const open = S.pushOpen;
+  const head = `<button type="button" class="pb-head pb-toggle" id="pb-toggle" aria-expanded="${open}"><span class="pb-ic">${ic('bell')}</span><span class="pb-title">${toMgr ? 'הקפץ הודעה זו למנהל' : 'הקפץ הודעה זו למזכירה'}</span>
+      ${open ? `<span class="pb-sub">${toMgr ? 'תופיע אצלו' : 'תופיע אצלה'} בראש הפתוחות, מודגשת, עם השם שלך · לא נשלחת לתורם</span>` : ''}${!open && S.noteDraft[d.id] ? '<span class="pb-draft">יש טיוטה</span>' : ''}${ic('chev', 'chev')}</button>`;
+  if (!open) return `<div class="push-box closed">${head}</div>`;
   return `<div class="push-box">
-    <div class="pb-head"><span class="pb-ic">${ic('bell')}</span><span class="pb-title">${toMgr ? 'הקפץ הודעה זו למנהל' : 'הקפץ הודעה זו למזכירה'}</span>
-      <span class="pb-sub">${toMgr ? 'תופיע אצלו' : 'תופיע אצלה'} בראש הפתוחות, מודגשת, עם השם שלך · לא נשלחת לתורם</span></div>
+    ${head}
     <div class="pb-to" role="radiogroup" aria-label="למי להקפיץ">${list.map(u => chip(u, false)).join('') || '<span class="muted">אין מזכירות פעילות</span>'}
       ${mgrs.length ? `<button type="button" class="pb-mgr-btn ${mgrOpen ? 'on' : ''}" data-push-mgr aria-expanded="${mgrOpen}">${ic('user')}הקפצה למנהל${ic('chev', 'chev')}</button>` : ''}</div>
     ${mgrs.length && mgrOpen ? `<div class="pb-to pb-mgrs" role="radiogroup" aria-label="הקפצה למנהל"><span class="pb-lbl">מנהלים:</span>${mgrs.map(u => chip(u, true)).join('')}</div>` : ''}
@@ -632,8 +638,18 @@ function notesBox(d) {
   </div>`;
 }
 
+// מסך מלא: מסתירים את סרגל הצד ואת הרשימה, הפניה תופסת את כל הרוחב
+function applyWide() { $('#layout').classList.toggle('wide', !!(S.wide && S.detail)); }
+function setWide(on) {
+  S.wide = on; ls.set('koh.wide', on); applyWide();
+  const b = $('#wide-btn');
+  if (b) { b.outerHTML = `<button type="button" class="wide-btn" id="wide-btn" aria-pressed="${on}" title="${on ? 'חזרה לתצוגה עם רשימת הפניות (Esc)' : 'הצגת הפניה על כל המסך – יותר מקום לשיחה'}">${ic(on ? 'shrink' : 'expand')}<span>${on ? 'הצגת הרשימה' : 'מסך מלא'}</span></button>`; $('#wide-btn').focus(); }
+  if (!on && S.selId) requestAnimationFrame(() => $(`#list [data-id="${CSS.escape(S.selId)}"]`)?.scrollIntoView({ block: 'nearest' }));
+}
+
 function renderDetail() {
   const d = S.detail, el = $('#detail');
+  applyWide();
   if (!d) { el.innerHTML = `<div class="empty-detail"><img class="empty-crest" src="images/koh/koh-logo-white.png" alt="" aria-hidden="true"><div>בחרו פניה מהרשימה כדי לראות את כל השיחה</div></div>`; return; }
   const me = S.me.key;
   const esc_ = d.status === 'escalated';
@@ -662,6 +678,7 @@ function renderDetail() {
           <div class="d-name">${esc(d.fromName)}</div>
           <div class="d-email"><a href="mailto:${esc(d.fromEmail)}">${esc(d.fromEmail)}</a></div>
         </div>
+        <button type="button" class="wide-btn" id="wide-btn" aria-pressed="${S.wide}" title="${S.wide ? 'חזרה לתצוגה עם רשימת הפניות (Esc)' : 'הצגת הפניה על כל המסך – יותר מקום לשיחה'}">${ic(S.wide ? 'shrink' : 'expand')}<span>${S.wide ? 'הצגת הרשימה' : 'מסך מלא'}</span></button>
       </div>
       <div class="d-subj">${esc(d.subject)}</div>
       <div class="d-state">
@@ -1175,6 +1192,8 @@ function bindApp() {
       if (!open && pushMgrTargets().some(u => u.key === S.pushTo[id])) delete S.pushTo[id];
       renderDetail(); return;
     }
+    if (e.target.closest('#wide-btn')) return setWide(!S.wide);
+    if (e.target.closest('#pb-toggle')) { S.pushOpen = !S.pushOpen; ls.set('koh.pushOpen', S.pushOpen); renderDetail(); if (S.pushOpen) $('#note-text')?.focus(); return; }
     if (e.target.closest('#cats-btn')) { S.catsOpen = !S.catsOpen; $('#d-cats').classList.toggle('open', S.catsOpen); $('#cats-btn').setAttribute('aria-expanded', S.catsOpen); return; }
     if (e.target.closest('#send-track-btn')) return sendReply(true);
     const nd = e.target.closest('[data-note-del]');
@@ -1212,6 +1231,12 @@ function bindApp() {
   // Enter בשדה הנמען לא שולח את המייל – רק עובר לכתיבת התשובה
   det.addEventListener('keydown', e => { if (e.target.id === 'reply-to' && e.key === 'Enter') { e.preventDefault(); $('#reply-body')?.focus(); } });
   det.addEventListener('keydown', e => { if (e.target.id === 'reply-body' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); } });
+  // Esc – יציאה ממסך מלא (לא כשמקלידים או כשחלון פתוח)
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !$('#layout').classList.contains('wide') || document.querySelector('dialog[open]')) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    setWide(false);
+  });
   det.addEventListener('keydown', e => { if (e.target.id === 'note-text' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); isMgr() ? sendPush() : addNote(); } });
   det.addEventListener('input', e => {
     if (e.target.id === 'reply-body') S.drafts[S.detail.id] = e.target.value;
