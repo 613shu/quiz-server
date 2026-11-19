@@ -38,8 +38,9 @@ const ICONS = {
   tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   chev: '<path d="m6 9 6 6 6-6"/>',
   bounce: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/>',
-  expand: '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>',
-  shrink: '<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/>',
+  // כמו כפתורי החלון: ריבוע = הגדלה, שני ריבועים חופפים = חזרה לגודל רגיל
+  expand: '<rect x="4.5" y="4.5" width="15" height="15" rx="1.5"/>',
+  shrink: '<rect x="3.5" y="8" width="12.5" height="12.5" rx="1.5"/><path d="M8 8V5a1.5 1.5 0 0 1 1.5-1.5H19A1.5 1.5 0 0 1 20.5 5v9.5A1.5 1.5 0 0 1 19 16h-3"/>',
 };
 const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 const isMgr = () => !!(S.me && S.me.manager);
@@ -639,11 +640,14 @@ function notesBox(d) {
 }
 
 // מסך מלא: מסתירים את סרגל הצד ואת הרשימה, הפניה תופסת את כל הרוחב
+// כפתור אייקון בפינה, כמו בחלון: ריבוע להגדלה, שני ריבועים לחזרה
+const wideBtn = on => { const t = on ? 'חזרה לגודל רגיל – עם רשימת הפניות (Esc)' : 'מסך מלא – הפניה על כל המסך';
+  return `<button type="button" class="wide-btn" id="wide-btn" aria-pressed="${on}" aria-label="${t}" title="${t}">${ic(on ? 'shrink' : 'expand')}</button>`; };
 function applyWide() { $('#layout').classList.toggle('wide', !!(S.wide && S.detail)); }
 function setWide(on) {
   S.wide = on; ls.set('koh.wide', on); applyWide();
   const b = $('#wide-btn');
-  if (b) { b.outerHTML = `<button type="button" class="wide-btn" id="wide-btn" aria-pressed="${on}" title="${on ? 'חזרה לתצוגה עם רשימת הפניות (Esc)' : 'הצגת הפניה על כל המסך – יותר מקום לשיחה'}">${ic(on ? 'shrink' : 'expand')}<span>${on ? 'הצגת הרשימה' : 'מסך מלא'}</span></button>`; $('#wide-btn').focus(); }
+  if (b) { b.outerHTML = wideBtn(on); $('#wide-btn').focus(); }
   if (!on && S.selId) requestAnimationFrame(() => $(`#list [data-id="${CSS.escape(S.selId)}"]`)?.scrollIntoView({ block: 'nearest' }));
 }
 
@@ -691,7 +695,7 @@ function renderDetail() {
         </div>
         ${catsBox(d)}
         ${d.readOnly || !isMgr() ? '' : pushBox(d)}
-        <button type="button" class="wide-btn" id="wide-btn" aria-pressed="${S.wide}" title="${S.wide ? 'חזרה לתצוגה עם רשימת הפניות (Esc)' : 'הצגת הפניה על כל המסך – יותר מקום לשיחה'}">${ic(S.wide ? 'shrink' : 'expand')}<span>${S.wide ? 'הצגת הרשימה' : 'מסך מלא'}</span></button>
+        ${wideBtn(S.wide)}
       </div>
       ${actions || (!d.readOnly && !isMgr()) ? `<div class="d-bar">
         ${actions ? `<div class="d-actions">${actions}</div>` : ''}
