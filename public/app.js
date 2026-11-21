@@ -22,6 +22,7 @@ const ICONS = {
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  translate: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   ret: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -79,7 +80,7 @@ const CUST_COLORS = ['#3b6cf6', '#7c4dff', '#0f9f8f', '#e8488a', '#f08c1a', '#0e
 
 const S = {
   cfg: null, me: null, view: 'open', sub: 'open', done: false, member: null, range: '', wr: { preset: '0' }, workedCounts: null, screen: 'inbox', category: null, q: '', byCategory: {}, subCounts: null, noteDraft: {}, pushTo: {}, pushMgrOpen: {}, catsOpen: false, wide: ls.get('koh.wide', false), pushOpen: ls.get('koh.pushOpen', false), sideCatsOpen: ls.get('koh.sideCats', false),
-  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, quoteBy: {}, sending: null, sendErr: {}, sentOk: {},
+  items: [], counts: {}, status: {}, selId: null, detail: null, filesBy: {}, drafts: {}, toBy: {}, quoteBy: {}, sending: null, sendErr: {}, sentOk: {}, tr: {}, trOrig: {},
   seen: ls.get('koh.seen', {}),
 };
 
@@ -463,6 +464,7 @@ function bubble(m, first) {
         </div>
         ${!out && m.email && m.email !== m.name ? `<div class="b-email">${esc(m.email)}</div>` : ''}
         <div class="b-body">${esc(bodyText(m)) || '<span class="b-empty">(הודעה ללא טקסט)</span>'}</div>
+        ${!out && looksEnglish(bodyText(m)) ? trHtml(m.id) : ''}
         ${m.reconstructed ? '<div class="b-recon" title="ההודעה הזו לא יובאה בנפרד – היא שוחזרה מתוך ההיסטוריה שמצוטטת בהודעה מאוחרת יותר">↩ מתוך ההתכתבות המצוטטת</div>' : ''}
         ${showQuoted ? `<button class="q-toggle" data-q="${m.id}">הצג היסטוריה קודמת</button><div class="quoted" id="q-${m.id}" hidden>${esc(m.quoted)}</div>` : ''}
         ${m.attachments.length ? attList(m.attachments) : ''}
@@ -499,6 +501,112 @@ function bodyText(m) {
   if (m.body) m = { ...m, body: m.body.replace(SIG_IMG_RE, '').trim() };
   if (!m.body || !m.attachments.some(a => a.id && IMG_RE.test(a.type || ''))) return m.body;
   return m.body.replace(/^[ \t]*\[image:[^\]\n]{0,200}\][ \t]*\n?/gim, '').trim();
+}
+
+// ---------- תרגום (המתרגם המובנה של כרום – רץ במחשב עצמו, הטקסט לא נשלח לשום שרת) ----------
+// כמו isEnglish בשרת: לפחות 10 אותיות לטיניות, ועברית עד 25% מהן
+function looksEnglish(t) {
+  t = String(t || '');
+  const lat = (t.match(/[A-Za-z]/g) || []).length, heb = (t.match(/[֐-׿]/g) || []).length;
+  return lat >= 10 && heb <= lat * 0.25;
+}
+const TR_LANG = { he: ['he', 'iw'], en: ['en'] };
+const trCache = {};
+function trMsg(msg) { const el = $('#tr-status'); return el ? (el.textContent = msg) : null; }
+// מחזיר מתרגם מוכן. onProgress(0..1) בזמן הורדת המודל (פעם ראשונה בכל מחשב)
+async function getTranslator(from, to, onProgress) {
+  const key = from + '>' + to;
+  if (trCache[key]) return trCache[key];
+  if (!('Translator' in self)) throw new Error('התרגום עובד רק בדפדפן כרום (גרסה 138 ומעלה) או אדג׳ (148 ומעלה) במחשב. בטלפון ובדפדפנים אחרים הוא לא זמין.');
+  let opts = null;
+  for (const s of TR_LANG[from]) for (const t of TR_LANG[to]) {
+    if (opts) break;
+    const o = { sourceLanguage: s, targetLanguage: t };
+    try { if (await Translator.availability(o) !== 'unavailable') opts = o; } catch {}
+  }
+  if (!opts) throw new Error('הדפדפן במחשב הזה לא תומך בתרגום בין אנגלית לעברית. נסו לעדכן את כרום לגרסה האחרונה.');
+  const p = Translator.create({ ...opts, monitor(m) { m.addEventListener('downloadprogress', e => onProgress && onProgress(e.loaded)); } });
+  trCache[key] = p;
+  try { return await p; } catch (e) { delete trCache[key]; throw e; }
+}
+// מתרגם פסקה-פסקה כדי לשמור על חלוקת השורות של המייל
+async function translateText(text, from, to, onProgress) {
+  const tr = await getTranslator(from, to, onProgress);
+  const parts = String(text).split(/(\n[ \t]*\n+)/);
+  const out = [];
+  for (const part of parts) out.push(/^\s*$/.test(part) ? part : await tr.translate(part));
+  return out.join('').trim();
+}
+function trErr(e) {
+  const m = e && e.message || '';
+  if (e && e.name === 'NotAllowedError') return 'הדפדפן לא אישר את הורדת מודל התרגום. לחצו שוב על הכפתור.';
+  if (/[֐-׿]/.test(m)) return m;
+  return 'התרגום נכשל. נסו שוב בעוד רגע.';
+}
+function trHtml(id) {
+  const t = S.tr[id] || {};
+  const k = esc(String(id));
+  if (t.state === 'done' && t.open) return `<div class="b-tr" data-tr-box="${k}">
+      <div class="tr-h">${ic('translate')} תרגום לעברית <span class="tr-note">· תרגום מכונה, ייתכנו טעויות</span><button type="button" class="tr-link" data-tr="${k}">הסתר תרגום</button></div>
+      <div class="tr-body" dir="rtl">${esc(t.text)}</div></div>`;
+  if (t.state === 'busy') return `<div class="b-tr-btn" data-tr-box="${k}"><span class="tr-busy">${ic('translate')} ${esc(t.msg || 'מתרגם…')}</span></div>`;
+  return `<div class="b-tr-btn" data-tr-box="${k}"><button type="button" class="tr-link" data-tr="${k}">${ic('translate')} ${t.state === 'done' ? 'הצג תרגום לעברית' : 'תרגם לעברית'}</button>
+    ${t.state === 'err' ? `<span class="tr-err">${esc(t.err)}</span>` : ''}</div>`;
+}
+function trPaint(id) {
+  const el = document.querySelector(`[data-tr-box="${CSS.escape(String(id))}"]`);
+  if (el) el.outerHTML = trHtml(id);
+}
+async function toggleTranslate(id) {
+  const t = S.tr[id];
+  if (t && t.state === 'busy') return;
+  if (t && t.state === 'done') { t.open = !t.open; return trPaint(id); }
+  const m = S.detail && S.detail.messages.find(x => String(x.id) === id); if (!m) return;
+  S.tr[id] = { state: 'busy', msg: 'מתרגם…' }; trPaint(id);
+  try {
+    const text = await translateText(bodyText(m), 'en', 'he', p => { S.tr[id].msg = `מוריד את מודל התרגום (פעם ראשונה במחשב הזה)… ${Math.round((p || 0) * 100)}%`; trPaint(id); });
+    S.tr[id] = { state: 'done', open: true, text };
+  } catch (e) { S.tr[id] = { state: 'err', err: trErr(e) }; }
+  trPaint(id);
+}
+// בתיבת התשובה: עברית → אנגלית. הטיוטה המקורית נשמרת, ואפשר לחזור אליה
+const wantsEnglishReply = d => d.categories.includes('english') || d.messages.some(m => m.direction !== 'out' && looksEnglish(bodyText(m)));
+function trReplyBtn(d) {
+  if (!wantsEnglishReply(d)) return '';
+  return S.trOrig[d.id] != null
+    ? `<button class="btn ghost sm" type="button" id="tr-reply-undo" title="מחזיר את הטקסט שכתבתם בעברית">${ic('translate')} חזרה לעברית</button>`
+    : `<button class="btn ghost sm" type="button" id="tr-reply-btn" title="מתרגם את מה שכתבתם לאנגלית. בדקו את התרגום לפני השליחה">${ic('translate')} תרגם לאנגלית</button>`;
+}
+function paintReplyTr() {
+  const old = $('#tr-reply-btn') || $('#tr-reply-undo'); if (!old || !S.detail) return;
+  old.outerHTML = trReplyBtn(S.detail);
+}
+async function translateReply() {
+  const d = S.detail, ta = $('#reply-body'), btn = $('#tr-reply-btn'); if (!d || !ta || !btn) return;
+  const src = ta.value.trim();
+  if (!src) { ta.focus(); return toast('כתבו קודם את התשובה בעברית, ואז לחצו על "תרגם לאנגלית"', 'err', 4000); }
+  const id = d.id;
+  btn.disabled = true; ta.readOnly = true;
+  const label = btn.innerHTML; btn.innerHTML = `${ic('translate')} מתרגם…`;
+  try {
+    const text = await translateText(src, 'he', 'en', p => { const b = $('#tr-reply-btn'); if (b) b.innerHTML = `${ic('translate')} מוריד מודל… ${Math.round((p || 0) * 100)}%`; });
+    S.trOrig[id] = ta.value;
+    S.drafts[id] = text;
+    if (S.detail && S.detail.id === id && $('#reply-body')) { $('#reply-body').value = text; $('#reply-body').dir = 'ltr'; }
+    paintReplyTr();
+    toast('התשובה תורגמה לאנגלית. קראו ובדקו אותה לפני השליחה.', 'ok', 5000);
+  } catch (e) {
+    const b = $('#tr-reply-btn'); if (b) { b.disabled = false; b.innerHTML = label; }
+    toast(trErr(e), 'err');
+  } finally { const t = $('#reply-body'); if (t) t.readOnly = false; }
+}
+function undoReplyTr() {
+  const d = S.detail; if (!d || S.trOrig[d.id] == null) return;
+  const cur = $('#reply-body')?.value || '';
+  if (cur.trim() !== (S.drafts[d.id] || '').trim() && !confirm('ערכתם את התרגום. לחזור לטקסט בעברית? השינויים בתרגום יימחקו.')) return;
+  S.drafts[d.id] = S.trOrig[d.id]; delete S.trOrig[d.id];
+  const ta = $('#reply-body'); if (ta) { ta.value = S.drafts[d.id]; ta.dir = 'auto'; ta.focus(); }
+  paintReplyTr();
 }
 
 function timeline(d) {
@@ -755,11 +863,12 @@ function composerHtml(d) {
       ${quoteHtml(d)}
       ${blocked ? `<div class="c-warn">שליחת מיילים לא זמינה כרגע בשרת, ולכן התשובה כנראה לא תישלח. אפשר לכתוב – הטיוטה נשמרת.</div>` : ''}
       <div class="c-box" id="c-box">
-        <textarea id="reply-body" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
+        <textarea id="reply-body" dir="${S.trOrig[d.id] != null ? 'ltr' : 'auto'}" placeholder="כתבו כאן את התשובה…">${esc(S.drafts[d.id] || '')}</textarea>
         <div class="files" id="files"></div>
         <div class="c-foot">
           <span class="c-hint">אפשר לגרור קבצים לכאן · Ctrl+Enter לשליחה</span>
           <div class="c-btns">
+            ${trReplyBtn(d)}
             <label class="btn ghost sm file-btn">${ic('clip')} צירוף קובץ<input type="file" id="file-input" multiple hidden></label>
             <button class="btn teal send-track" type="button" id="send-track-btn" title="התשובה תישלח, והפניה תעבור ל&quot;טופלו – במעקב&quot; (למשל כשביקשנו מהלקוח קובץ)">${ic('eye')} שליחה והשארה במעקב</button>
             <button class="btn primary" type="submit" id="send-btn" title="התשובה תישלח, והפניה תעבור ל&quot;טופלו – הושלם&quot;">שליחה</button>
@@ -884,7 +993,7 @@ async function sendReply(track = false) {
       if (S.detail && S.detail.id === id) renderSendState();
     });
     S.sending = null; S.sendProgress = null;
-    delete S.drafts[id]; delete S.toBy[id]; delete S.quoteBy[id]; S.filesBy[id] = []; S.sentOk[id] = to;
+    delete S.drafts[id]; delete S.trOrig[id]; delete S.toBy[id]; delete S.quoteBy[id]; S.filesBy[id] = []; S.sentOk[id] = to;
     toast(`התשובה נשלחה ל-${other ? to : d.fromName}` + (track ? ' · הפניה במעקב' : ''), 'ok');
     if (S.detail && S.detail.id === id) { S.detail = res; renderDetail(); }
     loadList().catch(() => {});
@@ -1185,6 +1294,9 @@ function bindApp() {
     const a = e.target.closest('[data-act]'); if (a) return act(a.dataset.act);
     const q = e.target.closest('[data-q]');
     if (q) { const box = $('#q-' + q.dataset.q); box.hidden = !box.hidden; q.textContent = box.hidden ? 'הצג היסטוריה קודמת' : 'הסתר היסטוריה'; return; }
+    const trb = e.target.closest('[data-tr]'); if (trb) return toggleTranslate(trb.dataset.tr);
+    if (e.target.closest('#tr-reply-btn')) return translateReply();
+    if (e.target.closest('#tr-reply-undo')) return undoReplyTr();
     const rm = e.target.closest('[data-rm]'); if (rm) { filesOf(S.detail.id).splice(+rm.dataset.rm, 1); renderFiles(); return; }
     if (e.target.closest('#note-add')) return addNote();
     if (e.target.closest('#push-send')) return sendPush();
