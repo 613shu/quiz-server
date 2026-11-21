@@ -454,17 +454,19 @@ function bubble(m, first) {
   const tag = out ? 'תשובת הצוות' : m.forwarded ? 'הועבר מהצוות' : (m.reconstructed && m.email && m.email !== S.detail.fromEmail ? 'צד נוסף' : 'הפונה');
   // ההיסטוריה המצוטטת מוצגת רק בהודעה הראשונה – בשאר היא כבר מופיעה בשרשור עצמו
   const showQuoted = m.quoted && first;
+  const en = !out && looksEnglish(bodyText(m));
   return `
     <div class="row ${m.direction}">
       ${avatar(out ? (m.author || 'KOH') : who, color, out ? 'sm team' : 'sm')}
       <div class="bubble" style="--c:${color}">
         <div class="b-head">
           <span class="b-who"><span class="b-tag">${tag}</span>${esc(who)}</span>
+          ${en ? trBtn(m.id) : ''}
           <span class="b-time">${m.dateUnknown ? '' : hm(m.date)}</span>
         </div>
         ${!out && m.email && m.email !== m.name ? `<div class="b-email">${esc(m.email)}</div>` : ''}
-        <div class="b-body">${esc(bodyText(m)) || '<span class="b-empty">(הודעה ללא טקסט)</span>'}</div>
-        ${!out && looksEnglish(bodyText(m)) ? trHtml(m.id) : ''}
+        ${en ? trBox(m.id) : ''}
+        <div class="b-body"${en ? ' dir="ltr"' : ''}>${esc(bodyText(m)) || '<span class="b-empty">(הודעה ללא טקסט)</span>'}</div>
         ${m.reconstructed ? '<div class="b-recon" title="ההודעה הזו לא יובאה בנפרד – היא שוחזרה מתוך ההיסטוריה שמצוטטת בהודעה מאוחרת יותר">↩ מתוך ההתכתבות המצוטטת</div>' : ''}
         ${showQuoted ? `<button class="q-toggle" data-q="${m.id}">הצג היסטוריה קודמת</button><div class="quoted" id="q-${m.id}" hidden>${esc(m.quoted)}</div>` : ''}
         ${m.attachments.length ? attList(m.attachments) : ''}
@@ -543,19 +545,27 @@ function trErr(e) {
   if (/[֐-׿]/.test(m)) return m;
   return 'התרגום נכשל. נסו שוב בעוד רגע.';
 }
-function trHtml(id) {
-  const t = S.tr[id] || {};
-  const k = esc(String(id));
-  if (t.state === 'done' && t.open) return `<div class="b-tr" data-tr-box="${k}">
-      <div class="tr-h">${ic('translate')} תרגום לעברית <span class="tr-note">· תרגום מכונה, ייתכנו טעויות</span><button type="button" class="tr-link" data-tr="${k}">הסתר תרגום</button></div>
-      <div class="tr-body" dir="rtl">${esc(t.text)}</div></div>`;
-  if (t.state === 'busy') return `<div class="b-tr-btn" data-tr-box="${k}"><span class="tr-busy">${ic('translate')} ${esc(t.msg || 'מתרגם…')}</span></div>`;
-  return `<div class="b-tr-btn" data-tr-box="${k}"><button type="button" class="tr-link" data-tr="${k}">${ic('translate')} ${t.state === 'done' ? 'הצג תרגום לעברית' : 'תרגם לעברית'}</button>
-    ${t.state === 'err' ? `<span class="tr-err">${esc(t.err)}</span>` : ''}</div>`;
+// הכפתור יושב בכותרת ההודעה, והתרגום נפתח מיד מתחתיה – מעל המקור באנגלית
+function trBtn(id) {
+  const t = S.tr[id] || {}, k = esc(String(id));
+  if (t.state === 'busy') return `<span class="tr-pill busy" data-tr-btn="${k}" role="status">${ic('translate')} ${esc(t.msg || 'מתרגם…')}</span>`;
+  const open = t.state === 'done' && t.open;
+  const label = open ? 'הסתרת התרגום' : t.state === 'done' ? 'הצגת התרגום' : t.state === 'err' ? 'ניסיון חוזר' : 'תרגום לעברית';
+  return `<button type="button" class="tr-pill ${open ? 'on' : ''}" data-tr-btn="${k}" data-tr="${k}" aria-expanded="${open}">${ic('translate')} ${label}</button>`;
+}
+function trBox(id) {
+  const t = S.tr[id] || {}, k = esc(String(id));
+  if (t.state === 'err') return `<div class="tr-err" data-tr-box="${k}">${esc(t.err)}</div>`;
+  if (t.state !== 'done' || !t.open) return `<div data-tr-box="${k}" hidden></div>`;
+  return `<div class="b-tr" data-tr-box="${k}">
+      <div class="tr-body" dir="rtl">${esc(t.text)}</div>
+      <div class="tr-note">תרגום אוטומטי, ייתכנו טעויות. המקור באנגלית מופיע למטה.</div>
+    </div>`;
 }
 function trPaint(id) {
-  const el = document.querySelector(`[data-tr-box="${CSS.escape(String(id))}"]`);
-  if (el) el.outerHTML = trHtml(id);
+  const q = a => document.querySelector(`[${a}="${CSS.escape(String(id))}"]`);
+  const b = q('data-tr-btn'); if (b) b.outerHTML = trBtn(id);
+  const x = q('data-tr-box'); if (x) x.outerHTML = trBox(id);
 }
 async function toggleTranslate(id) {
   const t = S.tr[id];
@@ -564,7 +574,7 @@ async function toggleTranslate(id) {
   const m = S.detail && S.detail.messages.find(x => String(x.id) === id); if (!m) return;
   S.tr[id] = { state: 'busy', msg: 'מתרגם…' }; trPaint(id);
   try {
-    const text = await translateText(bodyText(m), 'en', 'he', p => { S.tr[id].msg = `מוריד את מודל התרגום (פעם ראשונה במחשב הזה)… ${Math.round((p || 0) * 100)}%`; trPaint(id); });
+    const text = await translateText(bodyText(m), 'en', 'he', p => { S.tr[id].msg = `הורדה ראשונה של התרגום… ${Math.round((p || 0) * 100)}%`; trPaint(id); });
     S.tr[id] = { state: 'done', open: true, text };
   } catch (e) { S.tr[id] = { state: 'err', err: trErr(e) }; }
   trPaint(id);

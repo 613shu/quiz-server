@@ -1460,16 +1460,23 @@ body { background:
 .wide-btn[aria-pressed="true"]:hover { color: var(--gold); border-color: var(--line); background: var(--hover); }
 
 /* ---------- תרגום ---------- */
-.b-tr-btn { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.tr-link { background: none; border: 0; padding: 2px 0; color: var(--muted); cursor: pointer; font-size: 12.5px; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; }
-.tr-link:hover { color: var(--gold, var(--coral)); }
-.tr-link .i, .tr-busy .i, .tr-h .i { width: 14px; height: 14px; }
-.tr-busy { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; animation: trPulse 1.4s ease-in-out infinite; }
-@keyframes trPulse { 50% { opacity: .45; } }
-.tr-err { font-size: 12px; color: #b4232c; }
-.b-tr { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--soft, #f4f5f8); border-inline-start: 3px solid var(--c, #3b6cf6); }
-.tr-h { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--ink-2, var(--ink)); margin-bottom: 4px; }
-.tr-h .tr-note { font-weight: 400; color: var(--muted); }
-.tr-h .tr-link { margin-inline-start: auto; }
-.tr-body { white-space: pre-wrap; line-height: 1.65; word-break: break-word; font-size: 14.5px; color: var(--ink); }
+/* כפתור בכותרת ההודעה: מסגרת זהב דקה, כמו שאר הפעולות במערכת. הוא הדבר היחיד שבולט בכותרת */
+.b-head { flex-wrap: wrap; align-items: center; }
+.b-head .b-who { flex: 1 1 auto; min-width: 0; }
+.tr-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px 4px 12px; border-radius: 999px; font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.3;
+  color: var(--gold); background: var(--gold-bg); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.tr-pill:hover { background: color-mix(in srgb, var(--gold) 22%, transparent); }
+.tr-pill:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.tr-pill.on { color: var(--gold-ink); background: var(--gold); border-color: var(--gold); }
+.tr-pill.busy { cursor: default; font-weight: 500; }
+.tr-pill.busy .i { animation: trSpin 1.6s linear infinite; }
+.tr-pill .i { width: 15px; height: 15px; flex: none; }
+@keyframes trSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tr-pill.busy .i { animation: none; } }
+/* התרגום: מיד מתחת לכותרת, מעל המקור, עם קו זהב בצד */
+.b-tr { margin: 8px 0 12px; padding: 2px 0; padding-inline-start: 14px; border-inline-start: 2px solid var(--gold); }
+.tr-body { white-space: pre-wrap; line-height: 1.75; word-break: break-word; font-size: 15px; color: var(--ink); max-width: 70ch; }
+.tr-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.tr-err { margin: 6px 0 10px; font-size: 12.5px; color: var(--red); }
+.b-tr + .b-body { color: var(--ink-2); }
 #tr-reply-btn .i, #tr-reply-undo .i { width: 15px; height: 15px; }
