@@ -11,6 +11,8 @@ const bounceInfo = require('./mail/bounce');
 const L = {
   done: 'KOH/done', esc: 'KOH/escalated', ignore: 'KOH/ignore', keep: 'KOH/keep', reopen: 'KOH/reopened', followup: 'KOH/followup', track: 'KOH/track', notEnglish: 'KOH/not-english',
   free: 'KOH/free', assigned: 'KOH/assigned', outSeen: 'KOH/outbound',
+  // הודעה שפוצלה מפניה מאוחדת (העברה מרוכזת מהצוות) – סימון שהסטטוס הישן שלה כבר נוקה
+  split: 'KOH/split',
   // "ראיתי" על מייל שחזר – מוריד את ההודעה מראש המסך; הפניה נשארת בטיפול עד שליחה חוזרת / "טופל"
   bounceSeen: 'KOH/bounce-seen',
   // סווג ע"י AI (ראו ai-worker.js)
@@ -130,7 +132,26 @@ class Engine {
     }
     this.cache = new Map(out.map(t => [t.id, t]));
     for (const t of out) this.claimOutbound(t);
+    for (const t of out) this.cleanSplit(t);
     return this.cache;
+  }
+
+  // הודעה שפוצלה מפניה מאוחדת נשאה את התוויות של הפניה הקודמת (מי לקח/ה, הועבר למנהל, קטגוריה...).
+  // בפעם הראשונה – מנקים אותן, כך שהפניה החדשה מתחילה כחדשה בפניות הכלליות ומסווגת מחדש. "טופל"/"התעלם" נשארים.
+  cleanSplit(t) {
+    const ms = t.raw.filter(m => this.splitUids && this.splitUids.has(m.uid) && !m.labels.has(L.split));
+    if (!ms.length) return;
+    this.splitting ||= new Set();
+    if (ms.every(m => this.splitting.has(m.uid))) return;
+    ms.forEach(m => this.splitting.add(m.uid));
+    const drop = new Set([L.esc, L.free, L.assigned, L.reopen, L.ai, L.catManual, L.notEnglish, 'KOH/ai-seen']);
+    const old = [...new Set(ms.flatMap(m => [...m.labels]))].filter(l => drop.has(l) || l.startsWith('KOH/by/') || l.startsWith('KOH/cat/'));
+    const uids = ms.map(m => m.uid);
+    return Promise.resolve()
+      .then(() => this.p.modifyLabels(uids, [L.split], old))
+      .then(() => { this.cache = null; console.log(`[split] פוצלו ${uids.length} הודעות לפניה ${t.id} (${t.fromEmail})`); })
+      .catch(e => console.error('[split] labels', e.message))
+      .finally(() => uids.forEach(u => this.splitting.delete(u)));
   }
 
   // מייל יזום שזה עתה הגיע מהסנכרון: הפניה נרשמת על שם השולחת (ובמעקב, אם ביקשה) – פעם אחת בלבד
@@ -236,20 +257,71 @@ class Engine {
     return skip(a) ? null : a;
   }
 
+  // הצד השני לצורך איחוד: בהודעה שהועברה מהצוות – הלקוח שבתוך השרשור (לא מי שהעביר/ה)
+  mergeParty(m) {
+    const fw = this.forwardOf(m);
+    return (fw && fw.customer && fw.customer.address) || this.partyOf(m);
+  }
+
+  // פיצול העברות מרוכזות: כשחבר/ת צוות מעבירים לדשבורד כמה פניות של לקוחות שונים (למשל תשובות שונות לאותו מייל תפוצה),
+  // Gmail מצרף את כולן לשרשור אחד. כאן כל העברה של לקוח אחר מקבלת מזהה משלה (= פניה נפרדת).
+  // הלקוח של השרשור = הצד השני של ההודעה הראשונה בו. גם הודעת צוות בלי לקוח, מאותו שולח שהעבירה פניות שפוצלו, מופרדת.
+  // הודעה שעונה (In-Reply-To/References) להודעה שפוצלה, לאותו לקוח – מצטרפת אליה (תשובת הדשבורד, תגובת הלקוח).
+  splitForwards(msgs) {
+    const byThread = new Map();
+    for (const m of msgs) if (m.threadId) {
+      const k = String(m.threadId);
+      if (!byThread.has(k)) byThread.set(k, []);
+      byThread.get(k).push(m);
+    }
+    const out = new Map();
+    for (const list of byThread.values()) {
+      if (list.length < 2 || !list.some(m => this.forwardOf(m))) continue;
+      list.sort((a, b) => a.date.localeCompare(b.date) || a.uid - b.uid);
+      const anchor = list.map(m => this.mergeParty(m)).find(Boolean);
+      if (!anchor) continue;
+      const byMid = new Map(), splitFrom = new Set();
+      for (const m of list) {
+        const fw = this.forwardOf(m), party = this.mergeParty(m);
+        let tid = null;
+        if (fw && fw.customer && party !== anchor) { tid = `u${m.uid}`; splitFrom.add(m.from.address); }
+        else if (!fw || fw.customer) {
+          for (const ref of [m.inReplyTo, ...(m.references || [])]) {
+            const o = ref && byMid.get(ref);
+            if (o && party && o.party === party) { tid = o.tid; break; }
+          }
+        }
+        if (tid) out.set(m.uid, tid);
+        if (m.messageId && tid) byMid.set(m.messageId, { tid, party });
+      }
+      // הודעת צוות בלי לקוח (למשל "פנייתכם בטיפול") מאותו שולח שהעביר/ה את הפניות – לא נשארת אצל הלקוח הראשון
+      for (const m of list) {
+        const fw = this.forwardOf(m);
+        if (fw && !fw.customer && splitFrom.has(m.from.address) && !out.has(m.uid)) out.set(m.uid, `u${m.uid}`);
+      }
+    }
+    return out;
+  }
+
   mergeGroups(msgs) {
-    const tidOf = m => m.threadId ? String(m.threadId) : `u${m.uid}`;
+    const split = this.splitForwards(msgs);
+    this.splitUids = new Set([...split].filter(([uid, tid]) => tid === `u${uid}`).map(([uid]) => uid));
+    const tidOf = m => split.get(m.uid) || (m.threadId ? String(m.threadId) : `u${m.uid}`);
+    const isSplit = m => split.has(m.uid);
     const parent = new Map();
     const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
     const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent.set(b, a); };
     for (const m of msgs) parent.set(tidOf(m), tidOf(m));
 
-    // 1. לפי כותרות התשובה
+    // 1. לפי כותרות התשובה (בלי לחבר בחזרה הודעה שפוצלה לפניה של לקוח אחר)
     const byMid = new Map();
-    for (const m of msgs) if (m.messageId) byMid.set(m.messageId, tidOf(m));
+    for (const m of msgs) if (m.messageId) byMid.set(m.messageId, m);
     for (const m of msgs) {
       for (const ref of [m.inReplyTo, ...(m.references || [])]) {
-        const other = ref && byMid.get(ref);
-        if (other) union(tidOf(m), other);
+        const o = ref && byMid.get(ref);
+        if (!o) continue;
+        if ((isSplit(m) || isSplit(o)) && this.mergeParty(m) !== this.mergeParty(o)) continue;
+        union(tidOf(m), tidOf(o));
       }
     }
 
@@ -258,7 +330,7 @@ class Engine {
     const lastByKey = new Map();
     const sorted = [...msgs].sort((a, b) => a.date.localeCompare(b.date));
     for (const m of sorted) {
-      const party = this.partyOf(m);
+      const party = this.mergeParty(m);
       const subj = baseSubject(m.subject).toLowerCase().replace(/\s+/g, ' ');
       if (!party || subj.length < 2 || subj === '(ללא נושא)') continue;
       const key = `${party}|${subj}`, prev = lastByKey.get(key), t = Date.parse(m.date);
