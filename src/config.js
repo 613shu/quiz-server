@@ -18,6 +18,7 @@ const CATEGORIES = [
   { key: 'double',    name: 'חיוב כפול / החזר',   color: '#ef4444' },
   { key: 'cancel',    name: 'ביטול / שינוי תרומה', color: '#f97316', aliases: ['ביטולים', 'ביטול', 'שינויים'] },
   { key: 'collection',name: 'איסוף ומזומן',       color: '#10b981', aliases: ['איסוף', 'מזומן', 'מעטפות'] },
+  { key: 'partnership', name: 'שטר שותפות',       color: '#be185d', aliases: ['שטר', 'שטר שותפות', 'שטרות', 'כתב שותפות'] },
   { key: 'english',   name: 'אנגלית',             color: '#0f766e', aliases: ['english', 'אנגלית'] },
   { key: 'system',    name: 'הודעות מערכת',       color: '#a16207', aliases: ['מערכת', 'הודעות מערכת', 'system'] },
   { key: 'general',   name: 'כללי',               color: '#64748b' },

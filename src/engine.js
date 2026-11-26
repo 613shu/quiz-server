@@ -1,7 +1,7 @@
 // לב המערכת: בונה "פניות" משרשורי המייל, מחשב סטטוס, ומבצע פעולות צוות.
 // מצב כל פניה נשמר כתוויות בג׳ימייל (KOH/...), ולכן שורד הפעלה מחדש של השרת.
 const config = require('./config');
-const { categorize, isEnglish } = require('./categorize');
+const { categorize, isEnglish, isPartnership } = require('./categorize');
 const { extractForwardedSender, attachmentList } = require('./mail/parse');
 const attcache = require('./attcache');
 const { splitHistory, bodyKey } = require('./mail/history');
@@ -453,7 +453,10 @@ class Engine {
     // הודעות מערכת (Synchroline, MailAdmin, Charidy Support…) – ישר לקטגוריה "הודעות מערכת"
     const fromSystem = isSystemSender(customer) || isSystemSender(first.from);
     // KOH/ai בלי קטגוריה = ה-AI סיווג "כללי". בלי סימון (AI כבוי / עוד לא סווג / נכשל) – לפי מילות מפתח.
-    let categories = manualCats.length ? manualCats
+    // מענה למייל "שטר השותפות" – תמיד "שטר שותפות" (גם אם ה-AI סיווג אחרת קודם), אלא אם הצוות שינה ידנית
+    const partnership = !labels.has(L.catManual) && msgs.some(m => isPartnership(m.subject));
+    let categories = partnership ? ['partnership']
+      : manualCats.length ? manualCats
       : fromSystem || first.bounce ? ['system']
       : labels.has(L.ai) ? ['general']
       : categorize(first.subject + ' ' + incoming.map(m => m.body).join(' '));

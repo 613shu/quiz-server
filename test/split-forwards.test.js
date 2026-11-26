@@ -87,3 +87,12 @@ test('שרשור רגיל של לקוח אחד – בלי שינוי', async () 
   assert.strictEqual(ts.length, 1);
   assert.strictEqual(ts[0].raw.length, 2);
 });
+
+test('פניות שטר השותפות נכנסות לקטגוריה "שטר שותפות"', async () => {
+  const { e, a, chaya } = await setup();
+  chaya.labels.add('KOH/cat/inquiry'); chaya.labels.add('KOH/ai'); // סווג קודם ע"י AI
+  e.cache = null;
+  for (const t of e.threads().values()) if (/שטר/.test(t.subject)) assert.deepStrictEqual(t.categories, ['partnership']);
+  const { categorize } = require('../src/categorize');
+  assert.deepStrictEqual(categorize('שאלה לגבי שטר השותפות של הבנות'), ['partnership']);
+});
